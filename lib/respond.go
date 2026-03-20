@@ -1429,6 +1429,10 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 		}
 	}
 	log.Debugln("获取到", len(radios), "个按钮")
+
+	// 在開始選擇前，模擬閱讀題目的時間
+	humanPause(1500, 3000)
+
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
 		if err != nil {
@@ -1443,9 +1447,13 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			log.Errorln("点击选项出现错误" + err.Error())
 			return err
 		}
-		humanPause(500, 1400)
+		// 增加選項之間的延遲，模擬人類思考
+		humanPause(800, 1800)
 	}
-	humanPause(2500, 4500)
+
+	// 選擇完成後，模擬確認答案的思考時間（更長延遲）
+	humanPause(3000, 6000)
+
 	return checkNextBotton(page, questionText)
 }
 
@@ -1605,6 +1613,14 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 	_ = handle.WaitForElementState("stable", playwright.ElementHandleWaitForElementStateOptions{
 		Timeout: playwright.Float(5000),
 	})
+
+	// 模擬鼠標移動到元素上（更自然的點擊行為）
+	_ = handle.Hover(playwright.ElementHandleHoverOptions{
+		Timeout: playwright.Float(3000),
+	})
+
+	// 添加小延遲，模擬人類點擊前的短暫停頓
+	humanPause(100, 300)
 
 	err := handle.Click(playwright.ElementHandleClickOptions{
 		Timeout: playwright.Float(10000),
