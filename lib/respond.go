@@ -551,14 +551,73 @@ func solveAnswerSlider(page playwright.Page) error {
 	return nil
 }
 
+// checkDailyScoreAndContinue 檢查每日答題積分，決定是否繼續答題
+// 返回 true 表示需要繼續答題，false 表示可以退出
+func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User, score *Score, scoreRetryTimes int) bool {
+	targetScore := 5 // 每日答題目標5分
+
+	// 等待積分同步
+	log.Infoln("[答題] 等待積分同步...")
+	humanPause(3000, 5000)
+
+	// 獲取最新積分
+	latestScore, scoreErr := getUserScoreWithRetry(user, scoreRetryTimes)
+	if scoreErr != nil {
+		log.Warningln("[答題] 獲取積分失敗，嘗試繼續答題: " + scoreErr.Error())
+		return true
+	}
+	*score = latestScore
+
+	currentScore := score.Content["daily"].CurrentScore
+	maxScore := score.Content["daily"].MaxScore
+	log.Infoln("[答題] 當前每日答題積分: ", currentScore, "/", maxScore)
+
+	// 檢查是否已滿分
+	if currentScore >= maxScore || currentScore >= targetScore {
+		log.Infoln("[答題] 每日答題積分已滿，結束答題")
+		return false
+	}
+
+	// 積分未滿，返回積分頁面，準備進入下一輪
+	log.Infoln("[答題] 積分未滿，返回積分頁面準備下一輪答題")
+
+	// 跳轉到積分頁面
+	_, err := page.Goto(MyPointsUri, playwright.PageGotoOptions{
+		Referer:   playwright.String(MyPointsUri),
+		Timeout:   playwright.Float(15000),
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	})
+	if err != nil {
+		log.Errorln("[答題] 跳轉積分頁面失敗: " + err.Error())
+		return false
+	}
+
+	waitForVisibleSelector(page, []string{`#app .my-points-content`, `.my-points-content`, `#app .layout-body`}, 8, 300, 700)
+	humanPause(2000, 3500)
+
+	// 點擊每日答題按鈕，進入下一輪
+	err = openAnswerSection(page, "daily")
+	if err != nil {
+		log.Errorln("[答題] 進入每日答題失敗: " + err.Error())
+		return false
+	}
+
+	log.Infoln("[答題] 已進入新一輪每日答題")
+	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 500, 900)
+	humanPause(2000, 3500)
+
+	return true
+}
+
 // 每日答题
 // 新积分规则：只有每日答题，只需拿满5分
-// 支持最多3轮答题，当完整完成一轮后即可退出
+// 策略：完成一轮答题后退出，检查积分，未满5分则继续
 func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 
 	var title string
 	retryTimes := 0
 	var id int
+	maxRounds := 10 // 最多10轮答题
 
 	// 专项答题已取消，直接返回
 	if modelName == "special" {
@@ -1090,6 +1149,12 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			// 检测答题是否完成
 			if answerErr == ErrAnswerComplete {
 				log.Infoln("[答題] 本輪答題已完成")
+				// 對於每日答題，完成一輪後檢查積分，決定是否繼續
+				if modelName == "daily" {
+					if c.checkDailyScoreAndContinue(page, user, &score, cfg.ScoreRetryTimes) {
+						continue // 積分未滿，繼續新一輪答題
+					}
+				}
 				return true
 			}
 			if errors.Is(answerErr, ErrAnswerSliderChallenge) {
@@ -1102,6 +1167,12 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
+					// 對於每日答題，完成一輪後檢查積分，決定是否繼續
+					if modelName == "daily" {
+						if c.checkDailyScoreAndContinue(page, user, &score, cfg.ScoreRetryTimes) {
+							continue // 積分未滿，繼續新一輪答題
+						}
+					}
 					return true
 				}
 
@@ -1139,6 +1210,12 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				// 再次檢測是否答題完成
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 滑塊通過後檢測到結果頁，本輪答題結束")
+					// 對於每日答題，完成一輪後檢查積分，決定是否繼續
+					if modelName == "daily" {
+						if c.checkDailyScoreAndContinue(page, user, &score, cfg.ScoreRetryTimes) {
+							continue // 積分未滿，繼續新一輪答題
+						}
+					}
 					return true
 				}
 
