@@ -3002,9 +3002,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		log.Infoln("[答題] 等待系統判斷答案...")
 
 		// 先等待頁面穩定
-		_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-			State: playwright.WaitUntilStateNetworkidle,
-		})
+		_ = page.WaitForLoadState()
 		humanPause(500, 1000)
 
 		// 檢測是否有滑塊
