@@ -1098,7 +1098,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 
 				// 滑塊通過後，增加等待時間讓頁面狀態穩定
-				humanPause(2500, 4000)
+				humanPause(3000, 5000)
 
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -1116,6 +1116,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 				keywords := []string{"下一题", "确定", "提交", "完成", "确认", "继续"}
 
+				clickedButton := false
 				waitForVisibleSelector(page, buttonSelectors, 3, 300, 600)
 				for _, selector := range buttonSelectors {
 					btns, btnErr := page.QuerySelectorAll(selector)
@@ -1128,7 +1129,8 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 						btnText = strings.TrimSpace(btnText)
 						if clickErr := clickAnswerActionHandle(btn); clickErr == nil {
 							log.Infoln("[答題] 滑塊通過後重新點擊按鈕：", btnText)
-							humanPause(2000, 3500)
+							clickedButton = true
+							humanPause(2500, 4000)
 							break
 						}
 					}
@@ -1138,6 +1140,32 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 滑塊通過後檢測到結果頁，本輪答題結束")
 					return true
+				}
+
+				// 如果點擊了按鈕但仍未跳轉，等待並檢測新題目
+				if clickedButton {
+					humanPause(2000, 3000)
+
+					// 檢測是否有新題目
+					if hasAnswerQuestion(page) {
+						log.Infoln("[答題] 滑塊通過後成功加載新題目，繼續答題")
+						authChecker.Reset()
+						continue
+					}
+
+					// 如果沒有新題目也不是結果頁，嘗試刷新頁面
+					log.Infoln("[答題] 滑塊通過後頁面狀態異常，嘗試刷新頁面")
+					page.Reload(playwright.PageReloadOptions{
+						Timeout:   playwright.Float(15000),
+						WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+					})
+					humanPause(3000, 5000)
+
+					// 刷新後再次檢測
+					if isAnswerRoundComplete(page) {
+						log.Infoln("[答題] 刷新後檢測到結果頁，本輪答題結束")
+						return true
+					}
 				}
 
 				log.Infoln("[答題] 提交後的滑塊驗證已通過，等待加載下一題")
