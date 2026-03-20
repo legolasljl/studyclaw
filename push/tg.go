@@ -28,12 +28,12 @@ var (
 )
 
 func TgInit() {
+	tgPush = func(id string, kind string, message string) {}
 	defer func() {
 		err := recover()
 		if err != nil {
-			tgPush = func(id string, kind string, message string) {
-
-			}
+			log.Errorln("Telegram 初始化時發生異常")
+			log.Errorln(err)
 		}
 	}()
 	config := conf.GetConfig()
@@ -43,6 +43,12 @@ func TgInit() {
 		ChatId: config.TG.ChatID,
 		Proxy:  config.TG.Proxy,
 	}
+	if err := telegram.Init(); err != nil {
+		log.Errorln("Telegram 初始化失败")
+		log.Errorln(err.Error())
+		return
+	}
+	log.Infoln(fmt.Sprintf("Telegram Bot 已連線：@%s", telegram.bot.Self.UserName))
 	tgPush = func(id string, kind string, message string) {
 		defer func() {
 			err := recover()
@@ -69,8 +75,6 @@ func TgInit() {
 			}
 		}
 	}
-
-	telegram.Init()
 }
 
 // Telegram
@@ -110,8 +114,10 @@ func newPlugin(command string, handle func(bot *Telegram, from int64, args []str
  * @receiver t
  * @return func(kind string, message string)
  */
-func (t *Telegram) Init() {
+func (t *Telegram) Init() error {
 
+	newPlugin("/start", tgStart)
+	newPlugin("/ping", tgPing)
 	newPlugin("/login", login)
 	newPlugin("/get_users", getAllUser)
 	newPlugin("/study", study)
@@ -133,33 +139,34 @@ func (t *Telegram) Init() {
 		}
 	}
 	t.bot, err = tgbotapi.NewBotAPIWithClient(t.Token, conf.GetConfig().TG.CustomApi+"/bot%s/%s", &http.Client{Transport: &http.Transport{
-		// 设置代理
 		Proxy: func(r *http.Request) (*url.URL, error) {
 			if uri != nil {
 				return uri, nil
-			} else {
-				return http.ProxyFromEnvironment(r)
 			}
+			return http.ProxyFromEnvironment(r)
 		},
-		//TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}})
-
 	if err != nil {
-		log.Errorln("telegram token鉴权失败或代理使用失败")
-		log.Errorln(err.Error())
+		return fmt.Errorf("telegram token鉴权失败或代理使用失败: %w", err)
 	}
 
-	channel := t.bot.GetUpdatesChan(tgbotapi.NewUpdate(1))
+	updateConfig := tgbotapi.NewUpdate(0)
+	updateConfig.Timeout = 60
+	channel := t.bot.GetUpdatesChan(updateConfig)
 	go func() {
 		defer func() {
 			err := recover()
 			if err != nil {
 				log.Errorln("处理tg消息时发生异常，请尝试重启程序")
-				return
+				log.Errorln(err)
 			}
 		}()
 		for {
-			update := <-channel
+			update, ok := <-channel
+			if !ok {
+				log.Errorln("Telegram 更新通道已关闭")
+				return
+			}
 			if update.Message == nil {
 				if update.CallbackQuery != nil {
 					update.Message = update.CallbackQuery.Message
@@ -168,7 +175,11 @@ func (t *Telegram) Init() {
 				} else {
 					data, _ := json.Marshal(update)
 					log.Infoln(string(data))
+					continue
 				}
+			}
+			if update.Message == nil {
+				continue
 			}
 
 			if update.Message.Chat.Type == "group" || update.Message.Chat.Type == "supergroup" {
@@ -207,6 +218,8 @@ func (t *Telegram) Init() {
 	}()
 
 	_, err = t.bot.Request(tgbotapi.NewSetMyCommands(
+		tgbotapi.BotCommand{Command: "start", Description: "查看机器人状态"},
+		tgbotapi.BotCommand{Command: "ping", Description: "检查机器人是否在线"},
 		tgbotapi.BotCommand{Command: "login", Description: "登录一个账号"},
 		tgbotapi.BotCommand{Command: "get_users", Description: "获取所有cookie有效的用户"},
 		tgbotapi.BotCommand{Command: "get_fail_users", Description: "获取所有cookie失效的用户"},
@@ -220,11 +233,16 @@ func (t *Telegram) Init() {
 		tgbotapi.BotCommand{Command: "update", Description: "更新程序"},
 	))
 	if err != nil {
-		return
+		return fmt.Errorf("设置 Telegram 命令失败: %w", err)
 	}
+	return nil
 }
 
 func (t *Telegram) SendPhoto(id int64, image []byte) {
+	if t.bot == nil {
+		log.Warningln("Telegram bot 尚未初始化，图片未发送")
+		return
+	}
 	photo := tgbotapi.NewPhoto(id, tgbotapi.FileBytes{
 		Name:  "login code",
 		Bytes: image,
@@ -241,12 +259,24 @@ func (t *Telegram) SendMsg(id int64, message string) int {
 	if id == 0 {
 		id = t.ChatId
 	}
+	if t.bot == nil {
+		log.Warningln("Telegram bot 尚未初始化，消息未发送")
+		return 0
+	}
 	msg := tgbotapi.NewMessage(id, message)
 	messa, err := t.bot.Send(msg)
 	if err != nil {
 		return 0
 	}
 	return messa.MessageID
+}
+
+func tgStart(bot *Telegram, from int64, args []string) {
+	bot.SendMsg(from, "机器人在线。\n可用命令：/login /get_users /study /study_all /get_scores /quit /restart")
+}
+
+func tgPing(bot *Telegram, from int64, args []string) {
+	bot.SendMsg(from, "pong")
 }
 
 func getFailUser(bot *Telegram, from int64, args []string) {

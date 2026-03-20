@@ -13,10 +13,67 @@ import (
 type studyStep string
 
 const (
-	studyStepArticle    studyStep = "article"
-	studyStepAudio      studyStep = "audio"
-	studyStepDailyQuiz  studyStep = "daily_quiz"
+	studyStepArticle            studyStep = "article"
+	studyStepAudio              studyStep = "audio"
+	studyStepDailyQuiz          studyStep = "daily_quiz"
+	dailyFullScoreTarget                  = 29
+	scheduledStudyDurationLimit           = 35 * time.Minute
 )
+
+func maxInt(value int, floor int) int {
+	if value < floor {
+		return floor
+	}
+	return value
+}
+
+func formatScheduledStudyStartMessage(nick string, score *Score) string {
+	if score == nil {
+		return fmt.Sprintf("%s帳號 定時學習開始", nick)
+	}
+	programCurrent, programTarget := programTaskProgress(*score)
+	return fmt.Sprintf(
+		"%s帳號 定時學習開始\n程式可學三項進度：%d/%d\n今日總分：%d\n文章學習：%d/%d\n視頻學習：%d/%d\n每日答題：%d/%d\n",
+		nick,
+		programCurrent,
+		programTarget,
+		score.TodayScore,
+		score.Content["article"].CurrentScore,
+		score.Content["article"].MaxScore,
+		score.Content["video"].CurrentScore,
+		score.Content["video"].MaxScore,
+		score.Content["daily"].CurrentScore,
+		score.Content["daily"].MaxScore,
+	)
+}
+
+func formatScheduledStudySkipMessage(nick string, score Score) string {
+	programCurrent, programTarget := programTaskProgress(score)
+	return fmt.Sprintf(
+		"%s帳號 程式可學三項已滿分，跳過本輪定時學習\n程式可學三項進度：%d/%d\n今日總分：%d\n",
+		nick,
+		programCurrent,
+		programTarget,
+		score.TodayScore,
+	)
+}
+
+func formatScheduledStudyCompletionMessage(nick string, duration time.Duration, score Score) string {
+	message := FormatLearningCompletionMessage(nick, duration, score)
+	programCurrent, programTarget := programTaskProgress(score)
+	if programCurrent >= programTarget {
+		message += fmt.Sprintf("程式可學三項：已滿 %d/%d\n", programCurrent, programTarget)
+	} else {
+		remaining := maxInt(programTarget-programCurrent, 0)
+		message += fmt.Sprintf("程式可學三項：%d/%d，距離滿分還差 %d 分\n", programCurrent, programTarget, remaining)
+	}
+	if duration > scheduledStudyDurationLimit {
+		message += fmt.Sprintf("單次學習用時：已超過 %.0f 分鐘上限\n", scheduledStudyDurationLimit.Minutes())
+	} else {
+		message += fmt.Sprintf("單次學習用時：未超過 %.0f 分鐘上限\n", scheduledStudyDurationLimit.Minutes())
+	}
+	return message
+}
 
 func mediaScoreComplete(score Score) bool {
 	video := score.Content["video"]
@@ -75,15 +132,45 @@ func Study(core2 *Core, u *model.User) {
 		}
 	}()
 	startTime := time.Now()
-	RunLearningWorkflow(core2, u)
+	initialScore, initialErr := GetUserScore(u.ToCookies())
+	if initialErr != nil {
+		logrus.Warningln(fmt.Sprintf("[學習流程] 開始前回查積分失敗: %v", initialErr))
+		core2.Push(u.PushId, "flush", formatScheduledStudyStartMessage(u.Nick, nil))
+	} else {
+		core2.Push(u.PushId, "flush", formatScheduledStudyStartMessage(u.Nick, &initialScore))
+		programCurrent, programTarget := programTaskProgress(initialScore)
+		if programCurrent >= programTarget {
+			core2.Push(u.PushId, "flush", formatScheduledStudySkipMessage(u.Nick, initialScore))
+			return
+		}
+	}
+	timedOut := false
+	workflowDone := make(chan struct{}, 1)
+	go func() {
+		defer func() {
+			workflowDone <- struct{}{}
+		}()
+		RunLearningWorkflow(core2, u)
+	}()
+	select {
+	case <-workflowDone:
+	case <-time.After(scheduledStudyDurationLimit):
+		timedOut = true
+		core2.Push(u.PushId, "flush", fmt.Sprintf("%s帳號 單次學習已達 %.0f 分鐘上限，本輪自動停止", u.Nick, scheduledStudyDurationLimit.Minutes()))
+		core2.Quit()
+	}
 	endTime := time.Now()
 	score, err := GetUserScore(u.ToCookies())
 	if err != nil {
 		logrus.Errorln("获取成绩失败")
 		logrus.Debugln(err.Error())
+		core2.Push(u.PushId, "flush", fmt.Sprintf("%s帳號 本輪學習流程已結束，但成績查詢失敗：%v", u.Nick, err))
 		return
 	}
 
-	message := FormatLearningCompletionMessage(u.Nick, endTime.Sub(startTime), score)
+	message := formatScheduledStudyCompletionMessage(u.Nick, endTime.Sub(startTime), score)
+	if timedOut {
+		message += fmt.Sprintf("本輪狀態：已按 %.0f 分鐘上限自動停止\n", scheduledStudyDurationLimit.Minutes())
+	}
 	core2.Push(u.PushId, "flush", message)
 }

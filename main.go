@@ -159,7 +159,6 @@ func main() {
 		return
 	}
 
-	
 	// go update.CheckUpdate(VERSION)
 
 	// if u {
@@ -252,10 +251,10 @@ func do() {
 	log.Infoln("当前工作流：文章 + 音频")
 
 	getPush := push.GetPush(config)
-	getPush("", "flush", "studyclaw 已上线")
 	users, _ := model.Query()
 
 	failUser, _ := model.QueryFailUser()
+	getPush("all", "flush", fmt.Sprintf("定時學習任務開始\n有效帳號：%d\n待重新登入帳號：%d", len(users), len(failUser)))
 	for _, user := range failUser {
 		go func(user2 *model.User) {
 			c := &lib.Core{Push: getPush, ShowBrowser: config.ShowBrowser}
@@ -310,6 +309,7 @@ func do() {
 		s.Wait()
 	}
 	log.Infoln("定时任务执行完成")
+	getPush("all", "flush", "定時學習任務執行完成")
 	return
 
 }

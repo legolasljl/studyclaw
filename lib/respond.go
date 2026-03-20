@@ -987,9 +987,9 @@ func solveAnswerSlider(page playwright.Page) error {
 func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User, score *Score, scoreRetryTimes int) bool {
 	targetScore := 5 // 每日答題目標5分
 
-	// 等待積分同步和答題流程冷卻
+	// 等待積分同步和答題流程冷卻（需要足夠長以避免「多端同時作答」限制）
 	log.Infoln("[答題] 等待積分同步和答題流程冷卻...")
-	humanPause(5000, 8000) // 等待5-8秒，避免觸發"多端同時作答"
+	humanPause(15000, 25000) // 等待15-25秒，避免觸發"多端同時作答"
 
 	// 獲取最新積分
 	latestScore, scoreErr := getUserScoreWithRetry(user, scoreRetryTimes)
@@ -1049,7 +1049,7 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 			strings.Contains(normalizedText, "不支持多端同时作答") ||
 			strings.Contains(normalizedText, "答题流程") {
 			log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
-			humanPause(10000, 15000) // 等待10-15秒
+			humanPause(20000, 30000) // 等待20-30秒讓前一輪完全結束
 
 			// 刷新頁面重試
 			page.Reload(playwright.PageReloadOptions{

@@ -18,7 +18,7 @@
 
 - 正式流程不再執行每日答題。
 - 登入積分不列入主流程。
-- 完成通知只保留總積分、今日得分、本次用時、文章學習與視頻學習。
+- 完成通知會包含總積分、今日得分、本次用時，以及程式可學三項的完成情況。
 - Web 介面已改為簡潔風格，並收斂過時文案。
 
 ## 快速開始
@@ -110,7 +110,9 @@ cron_random_wait: 0
 
 ### 4. 設定推送
 
-`conf/config_default.yml` 已保留安全示例，可直接依照需要填入：
+`conf/config_default.yml` 已保留安全示例；實際部署時請把需要的段落填進 `config/config.yml`。
+
+目前內建示例包括：
 
 - DingTalk
 - PushPlus
@@ -120,11 +122,13 @@ cron_random_wait: 0
 - PushDeer
 - 極光推送
 
-例如 Telegram：
+#### Telegram
+
+可直接填值的範例如下：
 
 ```yaml
 tg:
-  enable: false
+  enable: true
   chat_id: 123456789
   token: "123456789:telegram_bot_token"
   proxy: ""
@@ -132,6 +136,83 @@ tg:
   white_list:
     - 123456789
 ```
+
+欄位說明：
+
+- `enable`：是否啟用 Telegram 推送與互動指令。
+- `chat_id`：預設接收通知的個人或群組 ID。
+- `token`：`@BotFather` 建立機器人後取得的 bot token。
+- `proxy`：可選；若你的環境連不到 Telegram，可填代理 URL。
+- `custom_api`：可選；若你有自架 Telegram API 反代，可替換這個網址。
+- `white_list`：允許向 bot 發送命令的 chat id 清單；建議至少填入自己的 `chat_id`。
+
+設定步驟：
+
+1. 在 Telegram 用 `@BotFather` 建立機器人並取得 `token`。
+2. 先對 bot 發一次 `/start`，讓 Telegram 建立對話。
+3. 用 bot 或其他工具查出你的 `chat_id`。
+4. 把 `chat_id` 同時填進 `chat_id` 與 `white_list`。
+5. 重啟程式後，先發 `/ping` 檢查 bot 是否在線。
+
+#### DingTalk
+
+可直接填值的範例如下：
+
+```yaml
+push:
+  ding:
+    enable: true
+    access_token: "your_ding_access_token"
+    secret: "SECxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+欄位說明：
+
+- `enable`：是否啟用釘釘群機器人推送。
+- `access_token`：群機器人 webhook 裡的 token 本體，不要貼整條 webhook URL。
+- `secret`：若機器人開啟「加簽」，填入對應的 `SEC...` 密鑰；若未開啟加簽，這個值保持空字串。
+
+設定步驟：
+
+1. 在釘釘群新增自訂機器人。
+2. 記下 webhook 中的 `access_token`。
+3. 若啟用了安全設定中的「加簽」，再把 `secret` 一起填入。
+4. 重啟程式後觀察啟動通知是否正常送達。
+
+#### 微信公眾號測試號
+
+可直接填值的範例如下：
+
+```yaml
+wechat:
+  enable: true
+  token: "your_wechat_token"
+  secret: "your_wechat_secret"
+  app_id: "wx1234567890abcdef"
+  login_temp_id: "wechat_login_template_id"
+  normal_temp_id: "wechat_normal_template_id"
+  push_login_warn: true
+  super_open_id: "openid_example"
+```
+
+欄位說明：
+
+- `enable`：是否啟用微信公眾號測試號推送。
+- `token`：微信測試號後台「接口配置信息」中的 token。
+- `secret`：微信測試號的 `appsecret`。
+- `app_id`：微信測試號的 `appID`。
+- `login_temp_id`：登入或授權流程用的模板消息 ID。
+- `normal_temp_id`：一般學習通知用的模板消息 ID。
+- `push_login_warn`：cookie 失效時是否主動推送提醒。
+- `super_open_id`：管理員自己的 openid，用來接收管理級消息。
+
+設定步驟：
+
+1. 到微信公眾平台測試號頁面建立測試號。
+2. 在測試號後台取得 `app_id`、`secret`、`token`。
+3. 建立登入通知與一般通知模板，填入 `login_temp_id`、`normal_temp_id`。
+4. 用微信掃碼關注測試號，取得自己的 `openid` 後填入 `super_open_id`。
+5. 確保部署入口可被微信平台回調，再重啟程式驗證推送。
 
 ### 5. 接入學習帳戶
 
@@ -151,7 +232,15 @@ xx帳號 已學習完成
 本次用時：
 文章學習： /12
 視頻學習： /12
+每日答題： /5
+程式可學三項： /29
 ```
+
+說明：
+
+- `今日得分` 是學習強國當天所有已得分項目的總和，可能高於 `29`。
+- 程式內可直接完成的三項只有 `文章學習 12`、`視頻學習 12`、`每日答題 5`，合計 `29` 分。
+- 若你已透過其他方式拿到登入、訂閱、專項等分數，`今日得分` 仍會增加，但不影響程式判斷這三項是否學滿。
 
 ## Docker 部署說明
 

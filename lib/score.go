@@ -23,6 +23,14 @@ type Data struct {
 	MaxScore     int `json:"max_score"`
 }
 
+func programTaskProgress(score Score) (current int, target int) {
+	target = dailyFullScoreTarget
+	for _, key := range []string{"article", "video", "daily"} {
+		current += score.Content[key].CurrentScore
+	}
+	return current, target
+}
+
 func addScoreData(dst *Data, current int, max int) {
 	dst.CurrentScore += current
 	dst.MaxScore += max
