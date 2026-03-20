@@ -601,11 +601,35 @@ func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, f
 			return { ok: false, reason: "未找到滑块按钮" };
 		}
 		const handleRect = resolvedHandle.rect;
-		const trackRect = resolvedTrack ? resolvedTrack.rect : handleRect;
+
+		// 如果找到軌道，使用軌道計算終點
+		// 如果找不到軌道，默認往右滑動 280 像素
+		let endX;
+		let endY;
+		if (resolvedTrack && resolvedTrack.rect.width > handleRect.width) {
+			const trackRect = resolvedTrack.rect;
+			endX = trackRect.left + trackRect.width - handleRect.width / 2 - 10;
+			endY = handleRect.top + handleRect.height / 2 + (Math.random() * 4 - 2);
+			console.log("[滑塊調試] 使用軌道計算終點: trackWidth=" + trackRect.width);
+		} else {
+			// 備用方案：往右滑動固定距離
+			endX = handleRect.left + 280;
+			endY = handleRect.top + handleRect.height / 2 + (Math.random() * 4 - 2);
+			console.log("[滑塊調試] 使用備用距離: 280px");
+		}
+
 		const startX = handleRect.left + handleRect.width / 2;
 		const startY = handleRect.top + handleRect.height / 2;
-		const endX = trackRect.left + Math.max(trackRect.width - handleRect.width / 2 - 6, handleRect.width);
-		const endY = startY + (Math.random() * 4 - 2);
+
+		// 確保終點比起點大（往右滑動）
+		if (endX <= startX) {
+			console.log("[滑塊調試] 終點異常，使用備用距離");
+			endX = startX + 250;
+		}
+
+		console.log("[滑塊調試] handleRect: left=" + handleRect.left + ", width=" + handleRect.width);
+		console.log("[滑塊調試] 起點: (" + startX + ", " + startY + "), 終點: (" + endX + ", " + endY + ")");
+
 		return { ok: true, startX, startY, endX, endY };
 	}`)
 	if err != nil {
