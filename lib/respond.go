@@ -489,22 +489,6 @@ func decodeSliderPosition(result interface{}) (float64, float64, float64, float6
 
 func findSliderInDocument(page playwright.Page) (interface{}, error) {
 	return page.Evaluate(`() => {
-		const handleSelectors = [
-			"#nc_1_n1z",
-			"[id^='nc_'][id$='_n1z']",
-			".nc_iconfont.btn_slide",
-			".btn_slide",
-			"[class*='btn_slide']",
-			".nc-lang-cnt .btn_slide",
-		];
-		const trackSelectors = [
-			"#nc_1_n1t",
-			"[id^='nc_'][id$='_n1t']",
-			".nc_scale",
-			".scale_text",
-			"[class*='nc_scale']",
-			".nc-lang-cnt",
-		];
 		const isVisible = (el) => {
 			if (!el) return false;
 			const rect = el.getBoundingClientRect();
@@ -512,61 +496,123 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 			const style = window.getComputedStyle(el);
 			return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
 		};
+
+		// ===== 阿里雲驗證碼 2.0（新版 aliyunCaptcha）=====
+		const sliderTrack = document.querySelector("#aliyunCaptcha-sliding-slider, .aliyunCaptcha-sliding-slider");
+		if (sliderTrack && isVisible(sliderTrack)) {
+			const trackRect = sliderTrack.getBoundingClientRect();
+			console.log("[滑塊調試] 偵測到阿里雲 2.0 滑塊軌道: width=" + trackRect.width + " height=" + trackRect.height);
+
+			// 2.0 版的拖拽按鈕通常是軌道內最左邊的小方塊子元素
+			let handleEl = sliderTrack.querySelector("[class*='btn'], [class*='button'], [class*='handle'], [class*='icon']");
+			if (!handleEl || !isVisible(handleEl)) {
+				// 嘗試找軌道內第一個可見的小子元素（寬度明顯小於軌道的）
+				for (const child of sliderTrack.children) {
+					if (isVisible(child)) {
+						const cr = child.getBoundingClientRect();
+						if (cr.width > 0 && cr.width < trackRect.width * 0.3) {
+							handleEl = child;
+							break;
+						}
+					}
+				}
+			}
+
+			if (handleEl && isVisible(handleEl)) {
+				const handleRect = handleEl.getBoundingClientRect();
+				console.log("[滑塊調試] 找到 2.0 拖拽按鈕: width=" + handleRect.width + " left=" + handleRect.left);
+				const startX = handleRect.left + handleRect.width / 2;
+				const startY = handleRect.top + handleRect.height / 2;
+				const endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
+				console.log("[滑塊調試] 2.0 位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
+				return { ok: true, startX, startY, endX, endY: startY };
+			}
+
+			// 找不到子按鈕，把整個軌道當作拖拽區域，從左端拖到右端
+			console.log("[滑塊調試] 未找到子按鈕，使用軌道左端作為起點");
+			const startX = trackRect.left + 20;
+			const startY = trackRect.top + trackRect.height / 2;
+			const endX = trackRect.left + trackRect.width - 10;
+			console.log("[滑塊調試] 2.0 位置(軌道模式): 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
+			return { ok: true, startX, startY, endX, endY: startY };
+		}
+
+		// 嘗試 bind_element 作為備選（可能本身就是可拖拽的容器）
+		const bindEl = document.querySelector("#JS_aliyun-captcha-slider_bind_element, .JS_aliyun-captcha-slider_bind_element");
+		if (bindEl && isVisible(bindEl)) {
+			const bindRect = bindEl.getBoundingClientRect();
+			console.log("[滑塊調試] 偵測到 2.0 bind_element: width=" + bindRect.width + " height=" + bindRect.height);
+			const startX = bindRect.left + 20;
+			const startY = bindRect.top + bindRect.height / 2;
+			const endX = bindRect.left + bindRect.width - 10;
+			console.log("[滑塊調試] 2.0 bind 位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
+			return { ok: true, startX, startY, endX, endY: startY };
+		}
+
+		// ===== 阿里雲 NoCaptcha（舊版）=====
+		const ncHandleSelectors = [
+			"#nc_1_n1z",
+			"[id^='nc_'][id$='_n1z']",
+			".nc_iconfont.btn_slide",
+			".btn_slide",
+			"[class*='btn_slide']",
+		];
+		const ncTrackSelectors = [
+			"#nc_1_n1t",
+			"[id^='nc_'][id$='_n1t']",
+			".nc_scale",
+			"[class*='nc_scale']",
+		];
 		let handleEl = null, handleRect = null;
-		for (const sel of handleSelectors) {
+		for (const sel of ncHandleSelectors) {
 			for (const el of document.querySelectorAll(sel)) {
 				if (isVisible(el)) {
 					handleEl = el;
 					handleRect = el.getBoundingClientRect();
-					console.log("[滑塊調試] 找到滑塊按鈕: selector=" + sel + " left=" + handleRect.left + " width=" + handleRect.width);
+					console.log("[滑塊調試] 找到 NC 滑塊按鈕: selector=" + sel + " left=" + handleRect.left + " width=" + handleRect.width);
 					break;
 				}
 			}
 			if (handleEl) break;
 		}
-		let trackEl = null, trackRect = null;
-		for (const sel of trackSelectors) {
-			for (const el of document.querySelectorAll(sel)) {
-				if (isVisible(el)) {
-					trackEl = el;
-					trackRect = el.getBoundingClientRect();
-					console.log("[滑塊調試] 找到滑塊軌道: selector=" + sel + " left=" + trackRect.left + " width=" + trackRect.width);
-					break;
+		if (handleEl && handleRect) {
+			let trackRect = null;
+			for (const sel of ncTrackSelectors) {
+				for (const el of document.querySelectorAll(sel)) {
+					if (isVisible(el)) {
+						trackRect = el.getBoundingClientRect();
+						break;
+					}
 				}
+				if (trackRect) break;
 			}
-			if (trackEl) break;
+			const startX = handleRect.left + handleRect.width / 2;
+			const startY = handleRect.top + handleRect.height / 2;
+			let endX;
+			if (trackRect && trackRect.width > handleRect.width) {
+				endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
+			} else {
+				endX = startX + 260;
+			}
+			return { ok: true, startX, startY, endX, endY: startY };
 		}
-		if (!handleEl || !handleRect) {
-			// 列出所有可見元素的 id/class 供調試
-			const allEls = [];
-			for (const el of document.querySelectorAll('*')) {
-				if (el.id || el.className) {
-					const r = el.getBoundingClientRect();
-					if (r.width > 0 && r.height > 0) {
-						const id = el.id || '';
-						const cls = (typeof el.className === 'string') ? el.className : '';
-						if (id.includes('nc') || id.includes('slide') || cls.includes('nc') || cls.includes('slide') || cls.includes('btn')) {
-							allEls.push(el.tagName + '#' + id + '.' + cls.substring(0, 60));
-						}
+
+		// ===== 都沒找到，輸出調試信息 =====
+		const allEls = [];
+		for (const el of document.querySelectorAll('*')) {
+			if (el.id || el.className) {
+				const r = el.getBoundingClientRect();
+				if (r.width > 0 && r.height > 0) {
+					const id = el.id || '';
+					const cls = (typeof el.className === 'string') ? el.className : '';
+					if (id.includes('nc') || id.includes('slide') || id.includes('captcha') || id.includes('aliyun') ||
+					    cls.includes('nc') || cls.includes('slide') || cls.includes('captcha') || cls.includes('aliyun') || cls.includes('btn')) {
+						allEls.push(el.tagName + '#' + id + '.' + cls.substring(0, 80));
 					}
 				}
 			}
-			return { ok: false, reason: "未找到滑塊按鈕", debugElements: allEls.slice(0, 15).join(' | ') };
 		}
-		const startX = handleRect.left + handleRect.width / 2;
-		const startY = handleRect.top + handleRect.height / 2;
-		let endX, endY;
-		if (trackRect && trackRect.width > handleRect.width) {
-			endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
-			endY = startY;
-			console.log("[滑塊調試] 使用軌道計算終點: 軌道寬度=" + trackRect.width);
-		} else {
-			endX = startX + 260;
-			endY = startY;
-			console.log("[滑塊調試] 使用備用距離: 260px");
-		}
-		console.log("[滑塊調試] 最終位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + endY + ")");
-		return { ok: true, startX, startY, endX, endY };
+		return { ok: false, reason: "未找到滑塊按鈕", debugElements: allEls.slice(0, 20).join(' | ') };
 	}`)
 }
 
@@ -600,6 +646,10 @@ func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, f
 		// 在 iframe 中執行查找
 		frameResult, frameErr := frame.Evaluate(`() => {
 			const handleSelectors = [
+				"#JS_aliyun-captcha-slider_bind_element",
+				".JS_aliyun-captcha-slider_bind_element",
+				"[class*='aliyunCaptcha-sliding-slider']",
+				"#aliyunCaptcha-sliding-slider",
 				"#nc_1_n1z",
 				"[id^='nc_'][id$='_n1z']",
 				".nc_iconfont.btn_slide",
@@ -608,6 +658,9 @@ func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, f
 				".nc-lang-cnt .btn_slide",
 			];
 			const trackSelectors = [
+				"#aliyunCaptcha-sliding-slider",
+				".aliyunCaptcha-sliding-slider",
+				"[class*='aliyunCaptcha-sliding']",
 				"#nc_1_n1t",
 				"[id^='nc_'][id$='_n1t']",
 				".nc_scale",
