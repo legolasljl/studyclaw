@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	MyPointsUri = "https://pc.xuexi.cn/points/my-points.html"
+	MyPointsUri       = "https://pc.xuexi.cn/points/my-points.html"
+	DailyPracticeUri  = "https://pc.xuexi.cn/points/exam-practice.html"
 
 	DailyBUTTON   = `#app > div > div.layout-body > div > div.my-points-section > div.my-points-content > div:nth-child(4) > div.my-points-card-footer > div.buttonbox > div`
 	WEEKEND       = `#app > div > div.layout-body > div > div.my-points-section > div.my-points-content > div:nth-child(7) > div.my-points-card-footer > div.buttonbox > div`
@@ -556,9 +557,9 @@ func solveAnswerSlider(page playwright.Page) error {
 func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User, score *Score, scoreRetryTimes int) bool {
 	targetScore := 5 // 每日答題目標5分
 
-	// 等待積分同步
-	log.Infoln("[答題] 等待積分同步...")
-	humanPause(3000, 5000)
+	// 等待積分同步和答題流程冷卻
+	log.Infoln("[答題] 等待積分同步和答題流程冷卻...")
+	humanPause(5000, 8000) // 等待5-8秒，避免觸發"多端同時作答"
 
 	// 獲取最新積分
 	latestScore, scoreErr := getUserScoreWithRetry(user, scoreRetryTimes)
@@ -578,12 +579,12 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 		return false
 	}
 
-	// 積分未滿，返回積分頁面，準備進入下一輪
+	// 積分未滿，先返回積分頁面
 	log.Infoln("[答題] 積分未滿，返回積分頁面準備下一輪答題")
 
 	// 跳轉到積分頁面
 	_, err := page.Goto(MyPointsUri, playwright.PageGotoOptions{
-		Referer:   playwright.String(MyPointsUri),
+		Referer:   playwright.String("https://www.xuexi.cn/"),
 		Timeout:   playwright.Float(15000),
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 	})
@@ -593,19 +594,56 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 	}
 
 	waitForVisibleSelector(page, []string{`#app .my-points-content`, `.my-points-content`, `#app .layout-body`}, 8, 300, 700)
-	humanPause(2000, 3500)
+	humanPause(3000, 5000) // 在積分頁面等待
 
-	// 點擊每日答題按鈕，進入下一輪
-	err = openAnswerSection(page, "daily")
+	// 直接跳轉到每日答題頁面 (exam-practice.html)
+	log.Infoln("[答題] 進入每日答題頁面...")
+	_, err = page.Goto(DailyPracticeUri, playwright.PageGotoOptions{
+		Referer:   playwright.String(MyPointsUri),
+		Timeout:   playwright.Float(15000),
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	})
 	if err != nil {
-		log.Errorln("[答題] 進入每日答題失敗: " + err.Error())
+		log.Errorln("[答題] 跳轉答題頁面失敗: " + err.Error())
 		return false
 	}
 
-	log.Infoln("[答題] 已進入新一輪每日答題")
+	humanPause(3000, 5000)
+
+	// 檢測是否有"不要中途開啟新的答題流程"的提示
+	pageText, _ := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
+	if text, ok := pageText.(string); ok {
+		normalizedText := strings.ReplaceAll(text, " ", "")
+		normalizedText = strings.ReplaceAll(normalizedText, "\n", "")
+		if strings.Contains(normalizedText, "请不要中途开启") ||
+			strings.Contains(normalizedText, "不支持多端同时作答") ||
+			strings.Contains(normalizedText, "答题流程") {
+			log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
+			humanPause(10000, 15000) // 等待10-15秒
+
+			// 刷新頁面重試
+			page.Reload(playwright.PageReloadOptions{
+				Timeout:   playwright.Float(15000),
+				WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			})
+			humanPause(3000, 5000)
+		}
+	}
+
+	// 等待答題頁面加載
 	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 500, 900)
 	humanPause(2000, 3500)
 
+	// 再次檢測是否有題目
+	if err := ensureAnswerQuestionReady(page); err != nil {
+		if isAnswerRoundComplete(page) {
+			log.Infoln("[答題] 檢測到結果頁，可能上一輪未完成")
+			return true // 繼續嘗試
+		}
+		log.Warningln("[答題] 答題頁面未就緒: " + err.Error())
+	}
+
+	log.Infoln("[答題] 已進入新一輪每日答題")
 	return true
 }
 
