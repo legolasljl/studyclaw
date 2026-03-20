@@ -304,8 +304,8 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 	// 先等待滑塊元素穩定
 	humanPause(500, 1000)
 
-	// 嘗試多次滑動
-	maxAttempts := 3
+	// 嘗試多次滑動（阿里雲滑塊有隨機性，多試幾次提高成功率）
+	maxAttempts := 5
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		log.Infoln("[答題] 滑塊驗證嘗試第", attempt, "次...")
 
@@ -326,7 +326,9 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 			return true
 		}
 
-		log.Warningln("[答題] 滑塊驗證未通過（嘗試", attempt, "），繼續重試...")
+		log.Warningln("[答題] 滑塊驗證未通過（嘗試", attempt, "），等待滑塊重置後重試...")
+		// 失敗後阿里雲滑塊會重置動畫，等待重置完成
+		humanPause(1500, 2500)
 	}
 
 	log.Warningln("[答題] 多次自動滑動未通過，等待手動驗證 (90秒)...")
@@ -502,6 +504,7 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 		const v2Bind = document.querySelector("#JS_aliyun-captcha-slider_bind_element, .JS_aliyun-captcha-slider_bind_element");
 		if (v2Bind && isVisible(v2Bind)) {
 			// 遍歷所有子孫元素，找到真正的拖拽手柄和軌道
+			const debugLog = [];
 			const dumpChildren = (el, depth) => {
 				const info = [];
 				for (const child of el.children) {
@@ -522,11 +525,11 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 			};
 
 			const bindRect = v2Bind.getBoundingClientRect();
-			console.log("[滑塊調試] bind_element: w=" + Math.round(bindRect.width) + " h=" + Math.round(bindRect.height) + " l=" + Math.round(bindRect.left));
+			debugLog.push("bind_element: w=" + Math.round(bindRect.width) + " h=" + Math.round(bindRect.height) + " l=" + Math.round(bindRect.left));
 
 			const dump = dumpChildren(v2Bind, 0);
 			for (const d of dump.slice(0, 30)) {
-				console.log("[滑塊DOM] " + d.tag + " id=" + d.id + " cls=" + d.cls + " " + d.w + "x" + d.h + " @(" + d.l + "," + d.t + ") kids=" + d.kids);
+				debugLog.push(d.tag + " id=" + d.id + " cls=" + d.cls + " " + d.w + "x" + d.h + " @(" + d.l + "," + d.t + ") kids=" + d.kids);
 			}
 
 			// 策略：在 bind_element 內找最窄的可見元素作為拖拽手柄（>> 箭頭）
@@ -542,7 +545,7 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 					if (r.width > 0 && r.width < bindRect.width * 0.3) {
 						handleEl = el;
 						handleRect = r;
-						console.log("[滑塊調試] 方法1找到手柄: cls=" + el.className + " w=" + Math.round(r.width));
+						debugLog.push("方法1找到手柄: cls=" + el.className + " w=" + Math.round(r.width));
 						break;
 					}
 				}
@@ -557,17 +560,17 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 					if (ssRect.width < bindRect.width * 0.5) {
 						handleEl = slidingSlider;
 						handleRect = ssRect;
-						console.log("[滑塊調試] 方法2: slidingSlider 是手柄 w=" + Math.round(ssRect.width));
+						debugLog.push("方法2: slidingSlider 是手柄 w=" + Math.round(ssRect.width));
 					} else {
 						// slidingSlider 是軌道，找其內部最左邊最小的子元素
-						console.log("[滑塊調試] 方法2: slidingSlider 是軌道 w=" + Math.round(ssRect.width) + " 繼續找子元素");
+						debugLog.push("方法2: slidingSlider 是軌道 w=" + Math.round(ssRect.width) + " 繼續找子元素");
 						for (const child of slidingSlider.querySelectorAll("*")) {
 							if (isVisible(child)) {
 								const cr = child.getBoundingClientRect();
 								if (cr.width > 5 && cr.width < ssRect.width * 0.3 && cr.left < ssRect.left + ssRect.width * 0.3) {
 									handleEl = child;
 									handleRect = cr;
-									console.log("[滑塊調試] 方法2b: 找到軌道內手柄 tag=" + child.tagName + " cls=" + child.className + " w=" + Math.round(cr.width));
+									debugLog.push("方法2b: 找到軌道內手柄 tag=" + child.tagName + " cls=" + child.className + " w=" + Math.round(cr.width));
 									break;
 								}
 							}
@@ -593,7 +596,7 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 				if (bestEl) {
 					handleEl = bestEl;
 					handleRect = bestEl.getBoundingClientRect();
-					console.log("[滑塊調試] 方法3暴力: tag=" + bestEl.tagName + " cls=" + bestEl.className + " w=" + Math.round(handleRect.width) + " l=" + Math.round(handleRect.left));
+					debugLog.push("方法3暴力: tag=" + bestEl.tagName + " cls=" + bestEl.className + " w=" + Math.round(handleRect.width) + " l=" + Math.round(handleRect.left));
 				}
 			}
 
@@ -601,17 +604,17 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 				const startX = handleRect.left + handleRect.width / 2;
 				const startY = handleRect.top + handleRect.height / 2;
 				const endX = bindRect.left + bindRect.width - handleRect.width / 2 - 5;
-				console.log("[滑塊調試] 最終: 起點(" + Math.round(startX) + "," + Math.round(startY) + ") 終點(" + Math.round(endX) + "," + Math.round(startY) + ") 距離=" + Math.round(endX - startX));
-				return { ok: true, startX, startY, endX, endY: startY };
+				debugLog.push("最終: 起點(" + Math.round(startX) + "," + Math.round(startY) + ") 終點(" + Math.round(endX) + "," + Math.round(startY) + ") 距離=" + Math.round(endX - startX));
+				return { ok: true, startX, startY, endX, endY: startY, debugLog };
 			}
 
 			// 所有方法都失敗，從 bind_element 左端拖到右端
-			console.log("[滑塊調試] 所有方法均未找到手柄，使用 bind_element 左端");
+			debugLog.push("所有方法均未找到手柄，使用 bind_element 左端");
 			const startX = bindRect.left + 25;
 			const startY = bindRect.top + bindRect.height / 2;
 			const endX = bindRect.left + bindRect.width - 10;
-			console.log("[滑塊調試] 備用: 起點(" + Math.round(startX) + "," + Math.round(startY) + ") 終點(" + Math.round(endX) + "," + Math.round(startY) + ") 距離=" + Math.round(endX - startX));
-			return { ok: true, startX, startY, endX, endY: startY };
+			debugLog.push("備用: 起點(" + Math.round(startX) + "," + Math.round(startY) + ") 終點(" + Math.round(endX) + "," + Math.round(startY) + ") 距離=" + Math.round(endX - startX));
+			return { ok: true, startX, startY, endX, endY: startY, debugLog };
 		}
 
 		// ===== 阿里雲 NoCaptcha（舊版）=====
@@ -686,6 +689,16 @@ func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, f
 	log.Infoln("[答題] 嘗試在主頁面查找滑塊按鈕...")
 	result, err := findSliderInDocument(page)
 	if err == nil {
+		// 輸出 JS 端的 debugLog 到 Go 日誌
+		if m, ok := result.(map[string]interface{}); ok {
+			if dl, ok := m["debugLog"]; ok {
+				if arr, ok := dl.([]interface{}); ok {
+					for _, line := range arr {
+						log.Infoln("[滑塊DOM] ", line)
+					}
+				}
+			}
+		}
 		x1, y1, x2, y2, decErr := decodeSliderPosition(result)
 		if decErr == nil {
 			return x1, y1, x2, y2, nil
@@ -860,60 +873,85 @@ func easeOutCubic(t float64) float64 {
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
 	distanceX := endX - startX
 
-	// 1) 移到滑塊附近，再精確到按鈕中心
-	page.Mouse().Move(startX-float64(rand2.Intn(15)+5), startY+float64(rand2.Intn(10)-5))
-	humanPause(150, 350)
+	// 1) 隨機移到滑塊附近區域，模擬找按鈕
+	page.Mouse().Move(startX-float64(rand2.Intn(30)+10), startY+float64(rand2.Intn(20)-10))
+	humanPause(100, 300)
+	// 可能額外晃一下
+	if rand2.Intn(3) == 0 {
+		page.Mouse().Move(startX+float64(rand2.Intn(10)-5), startY-float64(rand2.Intn(8)+2))
+		humanPause(50, 150)
+	}
 	page.Mouse().Move(startX, startY)
-	humanPause(200, 500)
+	humanPause(150, 400)
 
-	// 2) 按下
+	// 2) 按下，真人按下前有微小延遲
 	page.Mouse().Down()
-	humanPause(60, 180)
+	humanPause(80, 200)
 
 	// 3) 生成人類風格的軌跡點
-	//    真人特徵：快速啟動 → 中段平穩 → 接近終點時減速 → 可能滑過頭 → 回拉修正
-	type point struct{ x, y float64; delay int }
+	//    真人特徵：加速起步 → 中段有速度波動和微頓 → 減速 → 可能滑過 → 修正
+	type point struct {
+		x, y  float64
+		delay int
+	}
 	var trail []point
 
-	// 階段一：快速加速（前 30%）
-	phase1Steps := 6 + rand2.Intn(4)
-	for i := 1; i <= phase1Steps; i++ {
-		t := float64(i) / float64(phase1Steps) * 0.3
-		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
-		y := startY + float64(rand2.Intn(5)-2)
-		trail = append(trail, point{x, y, 8 + rand2.Intn(20)})
+	// 累積 Y 漂移（真人的手不會完美水平）
+	yDrift := float64(0)
+	yDriftDir := float64(1)
+	if rand2.Intn(2) == 0 {
+		yDriftDir = -1
 	}
 
-	// 階段二：中段平穩推進（30%-75%）
+	// 階段一：快速加速（前 25-35%）
+	phase1End := 0.25 + float64(rand2.Intn(10))/100.0
+	phase1Steps := 5 + rand2.Intn(4)
+	for i := 1; i <= phase1Steps; i++ {
+		t := float64(i) / float64(phase1Steps) * phase1End
+		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
+		yDrift += yDriftDir * float64(rand2.Intn(3)) * 0.3
+		y := startY + yDrift + float64(rand2.Intn(3)-1)
+		trail = append(trail, point{x, y, 6 + rand2.Intn(18)})
+	}
+
+	// 階段二：中段推進（至 70-80%），速度有波動
+	phase2End := 0.70 + float64(rand2.Intn(10))/100.0
 	phase2Steps := 8 + rand2.Intn(6)
 	for i := 1; i <= phase2Steps; i++ {
-		t := 0.3 + float64(i)/float64(phase2Steps)*0.45
+		t := phase1End + float64(i)/float64(phase2Steps)*(phase2End-phase1End)
 		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
-		y := startY + float64(rand2.Intn(7)-3)
-		trail = append(trail, point{x, y, 15 + rand2.Intn(35)})
+		yDrift += yDriftDir * float64(rand2.Intn(3)-1) * 0.2
+		y := startY + yDrift + float64(rand2.Intn(5)-2)
+		// 隨機微頓（真人會有小停頓）
+		delay := 12 + rand2.Intn(30)
+		if rand2.Intn(8) == 0 {
+			delay += 40 + rand2.Intn(80) // 偶爾一個較長停頓
+		}
+		trail = append(trail, point{x, y, delay})
 	}
 
-	// 階段三：減速接近終點（75%-100%），可能微微滑過
-	overshoot := float64(rand2.Intn(12) + 3) // 滑過 3-14px
-	phase3Steps := 5 + rand2.Intn(4)
+	// 階段三：減速接近終點（至 100%），可能微微滑過
+	overshoot := float64(rand2.Intn(10) + 2) // 滑過 2-11px
+	phase3Steps := 4 + rand2.Intn(4)
 	for i := 1; i <= phase3Steps; i++ {
-		t := 0.75 + float64(i)/float64(phase3Steps)*0.25
+		t := phase2End + float64(i)/float64(phase3Steps)*(1.0-phase2End)
 		targetX := startX + distanceX*t
 		if i == phase3Steps {
-			targetX = endX + overshoot // 最後一步滑過頭
+			targetX = endX + overshoot
 		}
-		y := startY + float64(rand2.Intn(5)-2)
-		trail = append(trail, point{targetX, y, 25 + rand2.Intn(50)})
+		yDrift += float64(rand2.Intn(3)-1) * 0.2
+		y := startY + yDrift + float64(rand2.Intn(3)-1)
+		trail = append(trail, point{targetX, y, 20 + rand2.Intn(45)})
 	}
 
 	// 階段四：回拉修正到正確位置
 	if overshoot > 0 {
-		humanPause(40, 120)
+		humanPause(30, 100)
 		correctionSteps := 2 + rand2.Intn(2)
 		for i := 1; i <= correctionSteps; i++ {
 			x := endX + overshoot*(1-float64(i)/float64(correctionSteps)) + float64(rand2.Intn(2))
-			y := startY + float64(rand2.Intn(3)-1)
-			trail = append(trail, point{x, y, 30 + rand2.Intn(60)})
+			y := startY + yDrift + float64(rand2.Intn(3)-1)
+			trail = append(trail, point{x, y, 25 + rand2.Intn(50)})
 		}
 	}
 
@@ -923,9 +961,9 @@ func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX
 		time.Sleep(time.Duration(p.delay) * time.Millisecond)
 	}
 
-	// 5) 最終精確定位 + 鬆手
+	// 5) 最終精確定位 + 短暫停留 + 鬆手
 	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1))
-	humanPause(80, 250)
+	humanPause(100, 350)
 	page.Mouse().Up()
 }
 
