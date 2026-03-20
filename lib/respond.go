@@ -49,6 +49,17 @@ var (
 		`#nc_1_wrapper`,
 		`.nc-container`,
 		`[id^="nc_"][id$="_wrapper"]`,
+		// 新增更多滑塊選擇器
+		`[class*="slider"]`,
+		`[class*="drag-verify"]`,
+		`[class*="slide-verify"]`,
+		`.slidercontainer`,
+		`.slide-verify`,
+		`.drag_verify`,
+		`[id*="slider"]`,
+		`[class*="captcha-slider"]`,
+		`.nc_wrapper`,
+		`.nc_mask`,
 	}
 )
 
@@ -140,9 +151,13 @@ func hasAnswerQuestion(page playwright.Page) bool {
 }
 
 func hasAnswerSliderPrompt(page playwright.Page) bool {
+	// 首先嘗試選擇器檢測
 	if hasVisibleSelector(page, answerSliderSelectors) {
+		log.Infoln("[答題] 通過選擇器檢測到滑塊驗證")
 		return true
 	}
+
+	// 檢測頁面文本中的滑塊提示
 	result, err := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
 	if err != nil {
 		return false
@@ -152,10 +167,58 @@ func hasAnswerSliderPrompt(page playwright.Page) bool {
 		return false
 	}
 	normalized := normalizeAnswerButtonText(text)
-	return strings.Contains(normalized, "请按住滑块") ||
+	if strings.Contains(normalized, "请按住滑块") ||
 		strings.Contains(normalized, "拖动到最右边") ||
 		strings.Contains(normalized, "向右滑动验证") ||
-		strings.Contains(normalized, "滑块")
+		strings.Contains(normalized, "滑块") {
+		log.Infoln("[答題] 通過文本檢測到滑塊驗證提示")
+		return true
+	}
+
+	return false
+}
+
+// detectAndLogSliderElements 檢測並打印頁面上所有可能的滑塊元素（用於調試）
+func detectAndLogSliderElements(page playwright.Page) {
+	result, _ := page.Evaluate(`() => {
+		const sliderKeywords = ['slider', 'drag', 'slide', 'captcha', 'nc_', '滑块', '验证'];
+		const allElements = document.querySelectorAll('*');
+		const found = [];
+		for (const el of allElements) {
+			const className = (el.className || '').toString().toLowerCase();
+			const id = (el.id || '').toString().toLowerCase();
+			const text = (el.innerText || el.textContent || '').toString().trim();
+			for (const keyword of sliderKeywords) {
+				if (className.includes(keyword) || id.includes(keyword) ||
+				    (text.length < 50 && text.includes(keyword))) {
+					const rect = el.getBoundingClientRect();
+					if (rect.width > 0 && rect.height > 0) {
+						found.push({
+							tag: el.tagName,
+							className: el.className,
+							id: el.id,
+							text: text.substring(0, 30),
+							width: rect.width,
+							height: rect.height
+						});
+						break;
+					}
+				}
+			}
+		}
+		return found.slice(0, 20);
+	}`)
+
+	if elements, ok := result.([]interface{}); ok && len(elements) > 0 {
+		log.Infoln("[答題調試] 檢測到可能的滑塊元素：", len(elements), "個")
+		for i, el := range elements {
+			if m, ok := el.(map[string]interface{}); ok {
+				log.Infoln("[答題調試] 元素", i, ": tag=", m["tag"], "class=", m["className"], "id=", m["id"], "text=", m["text"])
+			}
+		}
+	} else {
+		log.Infoln("[答題調試] 未檢測到滑塊相關元素")
+	}
 }
 
 func isAnswerCompletionText(text string) bool {
@@ -2787,6 +2850,19 @@ func clickAnswerContinueButton(page playwright.Page, buttonSelectors []string) e
 		text = strings.TrimSpace(text)
 		if clickErr := clickAnswerActionHandle(btn); clickErr == nil {
 			log.Infoln("[下一題] 已點擊繼續按鈕：", text)
+
+			// 如果點擊的是「完成」按鈕，檢測是否有滑塊驗證
+			if strings.Contains(text, "完成") {
+				humanPause(800, 1500)
+				// 調試：打印頁面上所有可能的滑塊元素
+				detectAndLogSliderElements(page)
+
+				if hasAnswerSliderPrompt(page) {
+					log.Infoln("[答題] 點擊「完成」後檢測到滑塊驗證")
+					return ErrAnswerSliderChallenge
+				}
+			}
+
 			humanPause(1200, 2200)
 			if isAnswerRoundComplete(page) {
 				log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -2841,6 +2917,17 @@ func clickAnswerContinueButton(page playwright.Page, buttonSelectors []string) e
 			if success, _ := payload["ok"].(bool); success {
 				text, _ := payload["text"].(string)
 				log.Infoln("[下一題] 已透過全局搜尋點擊繼續按鈕：", text)
+
+				// 如果點擊的是「完成」按鈕，檢測滑塊
+				if strings.Contains(text, "完成") {
+					humanPause(800, 1500)
+					detectAndLogSliderElements(page)
+					if hasAnswerSliderPrompt(page) {
+						log.Infoln("[答題] 全局搜索點擊「完成」後檢測到滑塊驗證")
+						return ErrAnswerSliderChallenge
+					}
+				}
+
 				humanPause(1200, 2200)
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
