@@ -498,54 +498,41 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 		};
 
 		// ===== 阿里雲驗證碼 2.0（新版 aliyunCaptcha）=====
-		const sliderTrack = document.querySelector("#aliyunCaptcha-sliding-slider, .aliyunCaptcha-sliding-slider");
-		if (sliderTrack && isVisible(sliderTrack)) {
-			const trackRect = sliderTrack.getBoundingClientRect();
-			console.log("[滑塊調試] 偵測到阿里雲 2.0 滑塊軌道: width=" + trackRect.width + " height=" + trackRect.height);
+		// 軌道 = JS_aliyun-captcha-slider_bind_element（大容器）
+		// 拖拽按鈕 = aliyunCaptcha-sliding-slider（小方塊）
+		const v2Track = document.querySelector("#JS_aliyun-captcha-slider_bind_element, .JS_aliyun-captcha-slider_bind_element");
+		const v2Handle = document.querySelector("#aliyunCaptcha-sliding-slider, .aliyunCaptcha-sliding-slider");
 
-			// 2.0 版的拖拽按鈕通常是軌道內最左邊的小方塊子元素
-			let handleEl = sliderTrack.querySelector("[class*='btn'], [class*='button'], [class*='handle'], [class*='icon']");
-			if (!handleEl || !isVisible(handleEl)) {
-				// 嘗試找軌道內第一個可見的小子元素（寬度明顯小於軌道的）
-				for (const child of sliderTrack.children) {
-					if (isVisible(child)) {
-						const cr = child.getBoundingClientRect();
-						if (cr.width > 0 && cr.width < trackRect.width * 0.3) {
-							handleEl = child;
-							break;
-						}
-					}
-				}
-			}
-
-			if (handleEl && isVisible(handleEl)) {
-				const handleRect = handleEl.getBoundingClientRect();
-				console.log("[滑塊調試] 找到 2.0 拖拽按鈕: width=" + handleRect.width + " left=" + handleRect.left);
-				const startX = handleRect.left + handleRect.width / 2;
-				const startY = handleRect.top + handleRect.height / 2;
-				const endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
-				console.log("[滑塊調試] 2.0 位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
-				return { ok: true, startX, startY, endX, endY: startY };
-			}
-
-			// 找不到子按鈕，把整個軌道當作拖拽區域，從左端拖到右端
-			console.log("[滑塊調試] 未找到子按鈕，使用軌道左端作為起點");
-			const startX = trackRect.left + 20;
-			const startY = trackRect.top + trackRect.height / 2;
-			const endX = trackRect.left + trackRect.width - 10;
-			console.log("[滑塊調試] 2.0 位置(軌道模式): 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
+		if (v2Track && isVisible(v2Track) && v2Handle && isVisible(v2Handle)) {
+			const trackRect = v2Track.getBoundingClientRect();
+			const handleRect = v2Handle.getBoundingClientRect();
+			console.log("[滑塊調試] 阿里雲 2.0: 軌道 width=" + trackRect.width + " 按鈕 width=" + handleRect.width + " left=" + handleRect.left);
+			const startX = handleRect.left + handleRect.width / 2;
+			const startY = handleRect.top + handleRect.height / 2;
+			const endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
+			console.log("[滑塊調試] 2.0 位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ") 距離=" + (endX - startX));
 			return { ok: true, startX, startY, endX, endY: startY };
 		}
 
-		// 嘗試 bind_element 作為備選（可能本身就是可拖拽的容器）
-		const bindEl = document.querySelector("#JS_aliyun-captcha-slider_bind_element, .JS_aliyun-captcha-slider_bind_element");
-		if (bindEl && isVisible(bindEl)) {
-			const bindRect = bindEl.getBoundingClientRect();
-			console.log("[滑塊調試] 偵測到 2.0 bind_element: width=" + bindRect.width + " height=" + bindRect.height);
-			const startX = bindRect.left + 20;
-			const startY = bindRect.top + bindRect.height / 2;
-			const endX = bindRect.left + bindRect.width - 10;
-			console.log("[滑塊調試] 2.0 bind 位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
+		// 只找到軌道沒找到按鈕，從軌道左端拖到右端
+		if (v2Track && isVisible(v2Track)) {
+			const trackRect = v2Track.getBoundingClientRect();
+			console.log("[滑塊調試] 2.0 只找到軌道: width=" + trackRect.width);
+			const startX = trackRect.left + 20;
+			const startY = trackRect.top + trackRect.height / 2;
+			const endX = trackRect.left + trackRect.width - 10;
+			console.log("[滑塊調試] 2.0 軌道模式: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ") 距離=" + (endX - startX));
+			return { ok: true, startX, startY, endX, endY: startY };
+		}
+
+		// 只找到按鈕沒找到軌道，用固定距離
+		if (v2Handle && isVisible(v2Handle)) {
+			const handleRect = v2Handle.getBoundingClientRect();
+			console.log("[滑塊調試] 2.0 只找到按鈕: width=" + handleRect.width);
+			const startX = handleRect.left + handleRect.width / 2;
+			const startY = handleRect.top + handleRect.height / 2;
+			const endX = startX + 280;
+			console.log("[滑塊調試] 2.0 按鈕+固定距離: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
 			return { ok: true, startX, startY, endX, endY: startY };
 		}
 
