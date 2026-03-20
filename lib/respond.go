@@ -2796,8 +2796,11 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 		`button`,
 	}
 	nextKeywords := []string{"下一题", "继续答题", "完成"}
+	checkCount := 0
 
 	for time.Now().Before(deadline) {
+		checkCount++
+
 		// 檢測是否到達結果頁
 		if isAnswerRoundComplete(page) {
 			log.Infoln("[答題] 系統判斷完成，已到達結果頁")
@@ -2844,17 +2847,22 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 							!el.hasAttribute('disabled');
 					}`)
 					if visible, ok := isVisible.(bool); ok && visible {
-						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊")
+						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊 (檢測次數:", checkCount, ")")
 						return true
 					}
 				}
 			}
 		}
 
+		// 每2次檢測打印一次狀態
+		if checkCount%2 == 0 {
+			log.Debugln("[答題] 等待系統判斷中... (檢測次數:", checkCount, ")")
+		}
+
 		humanPause(500, 1000)
 	}
 
-	log.Warningln("[答題] 等待系統判斷超時")
+	log.Warningln("[答題] 等待系統判斷超時 (檢測次數:", checkCount, ")")
 	return false
 }
 
@@ -2917,7 +2925,25 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
 			}
-			log.Warningln("[答題] 系統判斷超時，嘗試繼續")
+			log.Warningln("[答題] 系統判斷超時，嘗試刷新頁面")
+			// 刷新頁面重試
+			page.Reload(playwright.PageReloadOptions{
+				Timeout:   playwright.Float(15000),
+				WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			})
+			humanPause(2000, 3000)
+
+			// 刷新後再次檢測
+			if isAnswerRoundComplete(page) {
+				log.Infoln("[答題] 刷新後檢測到結果頁，本輪答題結束")
+				return ErrAnswerComplete
+			}
+			if hasAnswerSliderPrompt(page) {
+				log.Warningln("[答題] 刷新後檢測到滑塊驗證")
+				return ErrAnswerSliderChallenge
+			}
+			// 返回錯誤，讓上層處理
+			return fmt.Errorf("系統判斷超時，刷新後仍未恢復")
 		}
 
 		if isAnswerRoundComplete(page) {
