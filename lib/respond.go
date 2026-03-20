@@ -1213,72 +1213,91 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 					return true
 				}
 
-				// 滑塊可能攔截了提交請求，嘗試重新點擊提交/確定按鈕
-				buttonSelectors := []string{
-					`#app .action-row > button`,
-					`#app .action-row [role="button"]`,
-					`.action-row button`,
-					`.action-row [role="button"]`,
-					`button.ant-btn`,
-					`button`,
-				}
-				keywords := []string{"下一题", "确定", "提交", "完成", "确认", "继续"}
+				// 滑塊可能攔截了提交請求，需要重新選擇答案並提交
+				log.Infoln("[答題] 滑塊通過後，嘗試重新提交答案...")
 
-				clickedButton := false
-				waitForVisibleSelector(page, buttonSelectors, 3, 300, 600)
-				for _, selector := range buttonSelectors {
-					btns, btnErr := page.QuerySelectorAll(selector)
-					if btnErr != nil || len(btns) == 0 {
-						continue
-					}
-					btn := pickAnswerActionButton(btns, keywords)
-					if btn != nil {
-						btnText, _ := btn.TextContent()
-						btnText = strings.TrimSpace(btnText)
-						if clickErr := clickAnswerActionHandle(btn); clickErr == nil {
-							log.Infoln("[答題] 滑塊通過後重新點擊按鈕：", btnText)
-							clickedButton = true
-							humanPause(2500, 4000)
-							break
+				// 檢測是否還在當前題目頁面（有可選擇的選項）
+				currentOptions, optionsErr := getOptions(page)
+				if optionsErr == nil && len(currentOptions) > 0 {
+					log.Infoln("[答題] 檢測到仍在當前題目，重新選擇答案")
+
+					// 根據題目類型重新選擇答案
+					if strings.Contains(categoryText, "多选题") {
+						answer := pickSelectableAnswers(currentOptions, tips)
+						if len(answer) < 1 {
+							answer = currentOptions
 						}
-					}
-				}
-
-				// 再次檢測是否答題完成
-				if isAnswerRoundComplete(page) {
-					log.Infoln("[答題] 滑塊通過後檢測到結果頁，本輪答題結束")
-					// 對於每日答題，完成一輪後檢查積分，決定是否繼續
-					if modelName == "daily" {
-						if c.checkDailyScoreAndContinue(page, user, &score, cfg.ScoreRetryTimes) {
-							continue // 積分未滿，繼續新一輪答題
+						log.Infoln("[答題] 滑塊後重新選擇多選題答案：", answer)
+						answerErr = radioCheck(page, questionText, answer)
+					} else if strings.Contains(categoryText, "单选题") {
+						answer := selectSingleChoiceAnswers(questionText, currentOptions, tips)
+						if len(answer) < 1 {
+							answer = []string{currentOptions[0]}
 						}
-					}
-					return true
-				}
-
-				// 如果點擊了按鈕但仍未跳轉，等待並檢測新題目
-				if clickedButton {
-					humanPause(2000, 3000)
-
-					// 檢測是否有新題目
-					if hasAnswerQuestion(page) {
-						log.Infoln("[答題] 滑塊通過後成功加載新題目，繼續答題")
-						authChecker.Reset()
-						continue
+						log.Infoln("[答題] 滑塊後重新選擇單選題答案：", answer)
+						answerErr = radioCheck(page, questionText, answer)
+					} else if strings.Contains(categoryText, "填空题") {
+						log.Infoln("[答題] 滑塊後重新填寫答案")
+						answerErr = FillBlank(page, questionText, tips)
 					}
 
-					// 如果沒有新題目也不是結果頁，嘗試刷新頁面
-					log.Infoln("[答題] 滑塊通過後頁面狀態異常，嘗試刷新頁面")
-					page.Reload(playwright.PageReloadOptions{
-						Timeout:   playwright.Float(15000),
-						WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-					})
-					humanPause(3000, 5000)
-
-					// 刷新後再次檢測
-					if isAnswerRoundComplete(page) {
-						log.Infoln("[答題] 刷新後檢測到結果頁，本輪答題結束")
+					// 檢查重新提交後的結果
+					if answerErr == ErrAnswerComplete {
+						log.Infoln("[答題] 重新提交後答題完成")
+						if modelName == "daily" {
+							if c.checkDailyScoreAndContinue(page, user, &score, cfg.ScoreRetryTimes) {
+								continue
+							}
+						}
 						return true
+					}
+					if errors.Is(answerErr, ErrAnswerSliderChallenge) {
+						// 又出現滑塊，遞歸處理
+						log.Warningln("[答題] 重新提交後又出現滑塊，繼續處理")
+						continue
+					}
+					if answerErr != nil {
+						log.Warningln("[答題] 重新提交失敗：", answerErr.Error())
+					}
+				} else {
+					// 沒有選項，可能是已經跳轉到下一題或結果頁
+					log.Infoln("[答題] 滑塊通過後沒有檢測到選項，檢查頁面狀態")
+
+					if isAnswerRoundComplete(page) {
+						log.Infoln("[答題] 滑塊通過後檢測到結果頁，本輪答題結束")
+						if modelName == "daily" {
+							if c.checkDailyScoreAndContinue(page, user, &score, cfg.ScoreRetryTimes) {
+								continue
+							}
+						}
+						return true
+					}
+
+					// 嘗試點擊繼續按鈕
+					buttonSelectors := []string{
+						`#app .action-row > button`,
+						`.action-row button`,
+						`button.ant-btn`,
+						`button`,
+					}
+					keywords := []string{"下一题", "确定", "提交", "完成", "确认", "继续"}
+
+					waitForVisibleSelector(page, buttonSelectors, 3, 300, 600)
+					for _, selector := range buttonSelectors {
+						btns, btnErr := page.QuerySelectorAll(selector)
+						if btnErr != nil || len(btns) == 0 {
+							continue
+						}
+						btn := pickAnswerActionButton(btns, keywords)
+						if btn != nil {
+							btnText, _ := btn.TextContent()
+							btnText = strings.TrimSpace(btnText)
+							if clickErr := clickAnswerActionHandle(btn); clickErr == nil {
+								log.Infoln("[答題] 滑塊通過後點擊按鈕：", btnText)
+								humanPause(2500, 4000)
+								break
+							}
+						}
 					}
 				}
 
