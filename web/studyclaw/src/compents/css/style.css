@@ -873,6 +873,27 @@
   background: linear-gradient(90deg, #22c55e, #14b8a6);
 }
 
+.mini-progress__value--daily,
+.score-progress-card__value--daily {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+}
+
+/* --- sidebar mode group --- */
+.sidebar-mode-group {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-status-card--active {
+  border-color: rgba(8, 145, 178, 0.45);
+  background: rgba(8, 145, 178, 0.08);
+}
+
+.sidebar-status-card--active .sidebar-status-card__label {
+  color: #0891b2;
+  font-weight: 600;
+}
+
 .ghost-button--muted {
   background: rgba(255, 255, 255, 0.38);
 }

@@ -227,13 +227,15 @@ func GetUserScore(cookies []*http.Cookie) (Score, error) {
 
 func formatLearningScoreLines(score Score) string {
 	return fmt.Sprintf(
-		"當前學習總積分：%d\n今日得分：%d\n文章學習：%d/%d\n視頻學習：%d/%d\n",
+		"當前學習總積分：%d\n今日得分：%d\n文章學習：%d/%d\n視頻學習：%d/%d\n每日答題：%d/%d\n",
 		score.TotalScore,
 		score.TodayScore,
 		score.Content["article"].CurrentScore,
 		score.Content["article"].MaxScore,
 		score.Content["video"].CurrentScore,
 		score.Content["video"].MaxScore,
+		score.Content["daily"].CurrentScore,
+		score.Content["daily"].MaxScore,
 	)
 }
 
@@ -256,7 +258,7 @@ func FormatScoreShort(score Score) string {
 
 func FormatLearningCompletionMessage(nick string, duration time.Duration, score Score) string {
 	return fmt.Sprintf(
-		"%s帳號 已學習完成\n當前學習總積分：%d\n今日得分：%d\n本次用時：%.1f分鐘\n文章學習：%d/%d\n視頻學習：%d/%d\n",
+		"%s帳號 已學習完成\n當前學習總積分：%d\n今日得分：%d\n本次用時：%.1f分鐘\n文章學習：%d/%d\n視頻學習：%d/%d\n每日答題：%d/%d\n",
 		nick,
 		score.TotalScore,
 		score.TodayScore,
@@ -265,5 +267,7 @@ func FormatLearningCompletionMessage(nick string, duration time.Duration, score 
 		score.Content["article"].MaxScore,
 		score.Content["video"].CurrentScore,
 		score.Content["video"].MaxScore,
+		score.Content["daily"].CurrentScore,
+		score.Content["daily"].MaxScore,
 	)
 }

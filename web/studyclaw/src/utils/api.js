@@ -95,6 +95,11 @@ export async function saveConfig(data) {
     return resp.data;
 }
 
+export async function getStudyMode() {
+    let resp = await http.get(base+"/config");
+    return resp.data;
+}
+
 export async function getExpiredUsers(){
     let resp = await http.get(base+"/user/expired");
     return resp.data

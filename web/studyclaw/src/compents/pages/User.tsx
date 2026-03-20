@@ -11,6 +11,8 @@ type ScoreSnapshot = {
   articlePercentage: string;
   videoScore: string;
   videoPercentage: string;
+  dailyScore: string;
+  dailyPercentage: string;
 };
 
 type UserRecord = {
@@ -29,6 +31,8 @@ const emptyScore: ScoreSnapshot = {
   articlePercentage: "0%",
   videoScore: "0/0",
   videoPercentage: "0%",
+  dailyScore: "0/0",
+  dailyPercentage: "0%",
 };
 
 class Users extends Component<any, any> {
@@ -90,11 +94,14 @@ class Users extends Component<any, any> {
     const todayScoreMatch = payload.match(/今日得分：(\d+)/);
     const articleScoreMatch = payload.match(/(?:文章學習|文章学习)[:：](\d+)\/(\d+)/);
     const videoScoreMatch = payload.match(/(?:視頻學習|视频学习)[:：](\d+)\/(\d+)/);
+    const dailyScoreMatch = payload.match(/(?:每日答題|每日答题)[:：](\d+)\/(\d+)/);
 
     const articleCurrent = articleScoreMatch ? parseInt(articleScoreMatch[1], 10) : 0;
     const articleMax = articleScoreMatch ? parseInt(articleScoreMatch[2], 10) : 0;
     const videoCurrent = videoScoreMatch ? parseInt(videoScoreMatch[1], 10) : 0;
     const videoMax = videoScoreMatch ? parseInt(videoScoreMatch[2], 10) : 0;
+    const dailyCurrent = dailyScoreMatch ? parseInt(dailyScoreMatch[1], 10) : 0;
+    const dailyMax = dailyScoreMatch ? parseInt(dailyScoreMatch[2], 10) : 0;
 
     return {
       nick,
@@ -104,6 +111,8 @@ class Users extends Component<any, any> {
       articlePercentage: this.convertToPercentage(articleCurrent, articleMax),
       videoScore: `${videoCurrent}/${videoMax}`,
       videoPercentage: this.convertToPercentage(videoCurrent, videoMax),
+      dailyScore: `${dailyCurrent}/${dailyMax}`,
+      dailyPercentage: this.convertToPercentage(dailyCurrent, dailyMax),
     };
   };
 
@@ -311,6 +320,16 @@ class Users extends Component<any, any> {
               <div className="mini-progress__value mini-progress__value--accent" style={{ width: score.videoPercentage }} />
             </div>
           </div>
+
+          <div className="mini-progress">
+            <div className="mini-progress__head">
+              <strong>每日答題</strong>
+              <span>{score.dailyScore}</span>
+            </div>
+            <div className="mini-progress__track">
+              <div className="mini-progress__value mini-progress__value--daily" style={{ width: score.dailyPercentage }} />
+            </div>
+          </div>
         </div>
 
         <div className="user-card__actions">
@@ -466,6 +485,17 @@ class Users extends Component<any, any> {
                     <div className="score-progress-card__value score-progress-card__value--accent" style={{ width: selectedScore.videoPercentage }} />
                   </div>
                   <small>{selectedScore.videoPercentage}</small>
+                </div>
+
+                <div className="score-progress-card">
+                  <div className="score-progress-card__head">
+                    <strong>每日答題</strong>
+                    <span>{selectedScore.dailyScore}</span>
+                  </div>
+                  <div className="score-progress-card__track">
+                    <div className="score-progress-card__value score-progress-card__value--daily" style={{ width: selectedScore.dailyPercentage }} />
+                  </div>
+                  <small>{selectedScore.dailyPercentage}</small>
                 </div>
               </div>
             </div>

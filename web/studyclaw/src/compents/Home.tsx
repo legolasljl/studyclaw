@@ -10,6 +10,7 @@ import Help from "./pages/Help";
 import Log from "./pages/Log";
 import Other from "./pages/Other";
 import Overview from "./pages/Overview";
+import { getStudyMode } from "../utils/api";
 
 type HomeProps = {
   navigate: (path: string) => void;
@@ -68,14 +69,30 @@ const pageMeta = (pathname: string, isAdmin: boolean) => {
   };
 };
 
+const modeConfig: Record<number, { label: string; title: string; desc: string }> = {
+  1: { label: "模式 A", title: "文章 + 音頻", desc: "先讀文章，再補足音頻學習，不執行每日答題。" },
+  2: { label: "模式 B", title: "文章 + 音頻 + 每日答題", desc: "先讀文章，再音頻學習，最後自動完成每日答題。" },
+};
+
 function Home(props: HomeProps) {
   const [level, setLevel] = useState(sessionStorage.getItem("level") || "2");
+  const [studyMode, setStudyMode] = useState(1);
   const isAdmin = level === "1";
   const meta = pageMeta(props.location.pathname, isAdmin);
 
   useEffect(() => {
     setLevel(sessionStorage.getItem("level") || "2");
   }, [props.location.pathname]);
+
+  useEffect(() => {
+    getStudyMode()
+      .then((resp: any) => {
+        if (resp?.data?.model) {
+          setStudyMode(resp.data.model);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const logout = () => {
     window.localStorage.removeItem("studyclaw_token");
@@ -101,10 +118,18 @@ function Home(props: HomeProps) {
             </div>
           </div>
 
-          <div className="sidebar-status-card">
-            <span className="sidebar-status-card__label">唯一模式</span>
-            <strong>文章 + 音頻</strong>
-            <p>主流程固定為先讀文章，再補足音頻學習，不再執行每日答題。</p>
+          <div className="sidebar-mode-group">
+            {[1, 2].map((mode) => {
+              const cfg = modeConfig[mode];
+              const isActive = studyMode === mode;
+              return (
+                <div key={mode} className={`sidebar-status-card${isActive ? " sidebar-status-card--active" : ""}`}>
+                  <span className="sidebar-status-card__label">{cfg.label}{isActive ? " · 當前" : ""}</span>
+                  <strong>{cfg.title}</strong>
+                  <p>{cfg.desc}</p>
+                </div>
+              );
+            })}
           </div>
 
           <nav className="sidebar-nav">
