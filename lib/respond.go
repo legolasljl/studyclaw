@@ -655,7 +655,6 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 	var title string
 	retryTimes := 0
 	var id int
-	maxRounds := 10 // 最多10轮答题
 
 	// 专项答题已取消，直接返回
 	if modelName == "special" {
