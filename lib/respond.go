@@ -2914,6 +2914,34 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 	}
 
 	log.Warningln("[答題] 等待系統判斷超時 (檢測次數:", checkCount, ")")
+
+	// 超時時捕獲頁面狀態用於調試
+	pageContent, _ := page.Evaluate(`() => {
+		const buttons = Array.from(document.querySelectorAll('button')).map(b => ({
+			text: b.textContent.trim(),
+			disabled: b.disabled
+		}));
+		const errorEl = document.querySelector('.error, .ant-message, .ant-alert, [class*="error"]');
+		return {
+			url: window.location.href,
+			buttons: buttons,
+			errorText: errorEl ? errorEl.textContent : null
+		};
+	}`)
+	if content, ok := pageContent.(map[string]interface{}); ok {
+		log.Warningln("[答題] 超時時頁面狀態: URL=", content["url"])
+		if btns, ok := content["buttons"].([]interface{}); ok {
+			for i, b := range btns {
+				if btn, ok := b.(map[string]interface{}); ok {
+					log.Warningln("[答題] 超時時按鈕[", i, "] 文本='", btn["text"], "' 禁用=", btn["disabled"])
+				}
+			}
+		}
+		if content["errorText"] != nil {
+			log.Warningln("[答題] 超時時錯誤信息: ", content["errorText"])
+		}
+	}
+
 	return false
 }
 
