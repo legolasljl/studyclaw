@@ -488,147 +488,91 @@ func decodeSliderPosition(result interface{}) (float64, float64, float64, float6
 }
 
 func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, float64, error) {
+	// 簡化邏輯：直接查找阿里雲滑塊的標準元素
 	result, err := page.Evaluate(`() => {
+		console.log("[滑塊調試] 開始檢測滑塊元素...");
+
+		// 阿里雲滑塊的標準選擇器
 		const handleSelectors = [
-			"#nc_1_n1z",
-			".btn_slide",
-			"[class*='btn_slide']",
+			"#nc_1_n1z",           // 阿里雲滑塊按鈕標準ID
 			".nc_iconfont.btn_slide",
-			"[class*='slider'] [class*='handle']",
-			"[class*='slider'] [class*='handler']",
-			"[class*='sliding'] [class*='handle']",
-			"[class*='sliding'] [class*='handler']",
-			"[class*='captcha'] [class*='handle']",
-			"[class*='captcha'] [class*='handler']",
-			"[class*='drag'] [class*='handle']",
-			"[class*='drag'] [class*='handler']",
-			"[id*='slider'] [class*='handle']",
-			"[id*='slider'] [class*='handler']"
+			".btn_slide",
+			"[class*='btn_slide']"
 		];
+
 		const trackSelectors = [
-			"#nc_1_n1t",
+			"#nc_1_n1t",           // 阿里雲滑塊軌道標準ID
 			".nc_scale",
-			"[class*='scale']",
-			".scale_text",
-			"[class*='slider']",
-			"[class*='track']",
-			"[class*='rail']",
-			"[class*='bar']",
-			"[class*='sliding']",
-			"[id*='slider']"
+			".scale",
+			"[class*='nc_scale']"
 		];
-		const normalize = (value) => String(value || "").replace(/\s+/g, "").trim();
+
 		const isVisible = (el) => {
 			if (!el) return false;
 			const rect = el.getBoundingClientRect();
 			const style = window.getComputedStyle(el);
-			return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+			return rect.width > 0 && rect.height > 0 &&
+			       style.display !== "none" && style.visibility !== "hidden";
 		};
-		const getVisible = (selectors, matcher) => {
-			for (const selector of selectors) {
-				for (const el of Array.from(document.querySelectorAll(selector)).slice(0, 80)) {
-					if (!isVisible(el)) continue;
-					const rect = el.getBoundingClientRect();
-					if (matcher && !matcher(rect, el)) continue;
-					return { el, rect };
-				}
-			}
-			return null;
-		};
-		const handleMatcher = (rect) => rect.width >= 18 && rect.width <= 140 && rect.height >= 18 && rect.height <= 140;
-		const trackMatcher = (rect) => rect.width >= 120 && rect.height >= 18;
-		const handleData = getVisible(handleSelectors, handleMatcher);
-		const trackData = getVisible(trackSelectors, trackMatcher);
-		const findPromptContainer = () => {
-			const prompts = Array.from(document.querySelectorAll("div, span, p"));
-			for (const el of prompts) {
-				if (!isVisible(el)) continue;
-				const text = normalize(el.innerText || el.textContent || "");
-				if (!text) continue;
-				if (!text.includes("请按住滑块") && !text.includes("拖动到最右边") && !text.includes("向右滑动")) {
-					continue;
-				}
-				return el.closest("div") || el.parentElement;
-			}
-			return null;
-		};
-		const inferFromPromptContainer = () => {
-			const container = findPromptContainer();
-			if (!container) return null;
-			const descendants = Array.from(container.querySelectorAll("div, span, button")).filter(isVisible);
-			let guessedHandle = null;
-			let guessedTrack = null;
-			for (const el of descendants) {
-				const rect = el.getBoundingClientRect();
-				if (!guessedHandle && handleMatcher(rect, el)) {
-					guessedHandle = { el, rect };
-				}
-				if (!guessedTrack && trackMatcher(rect, el)) {
-					guessedTrack = { el, rect };
-				}
-			}
-			if (guessedHandle) {
-				return { handleData: guessedHandle, trackData: guessedTrack };
-			}
-			return null;
-		};
-		let resolvedHandle = handleData;
-		let resolvedTrack = trackData;
-		if (!resolvedHandle) {
-			const inferred = inferFromPromptContainer();
-			if (inferred) {
-				resolvedHandle = inferred.handleData;
-				if (!resolvedTrack) {
-					resolvedTrack = inferred.trackData;
-				}
-			}
-		}
-		if (!resolvedHandle) {
-			const genericCandidates = Array.from(document.querySelectorAll("div, span, button")).filter(isVisible);
-			for (const el of genericCandidates) {
-				const rect = el.getBoundingClientRect();
-				if (!handleMatcher(rect, el)) continue;
-				const className = String(el.className || "");
-				const id = String(el.id || "");
-				const text = normalize(el.innerText || el.textContent || "");
-				if (normalize(className + id).includes("slider") || normalize(className + id).includes("drag") || text === "") {
-					resolvedHandle = { el, rect };
+
+		// 查找滑塊按鈕
+		let handleEl = null;
+		let handleRect = null;
+		for (const selector of handleSelectors) {
+			const elements = document.querySelectorAll(selector);
+			for (const el of elements) {
+				if (isVisible(el)) {
+					handleEl = el;
+					handleRect = el.getBoundingClientRect();
+					console.log("[滑塊調試] 找到滑塊按鈕: selector=" + selector +
+					            " left=" + handleRect.left + " width=" + handleRect.width);
 					break;
 				}
 			}
-		}
-		if (!resolvedHandle) {
-			return { ok: false, reason: "未找到滑块按钮" };
-		}
-		const handleRect = resolvedHandle.rect;
-
-		// 如果找到軌道，使用軌道計算終點
-		// 如果找不到軌道，默認往右滑動 280 像素
-		let endX;
-		let endY;
-		if (resolvedTrack && resolvedTrack.rect.width > handleRect.width) {
-			const trackRect = resolvedTrack.rect;
-			endX = trackRect.left + trackRect.width - handleRect.width / 2 - 10;
-			endY = handleRect.top + handleRect.height / 2 + (Math.random() * 4 - 2);
-			console.log("[滑塊調試] 使用軌道計算終點: trackWidth=" + trackRect.width);
-		} else {
-			// 備用方案：往右滑動固定距離
-			endX = handleRect.left + 280;
-			endY = handleRect.top + handleRect.height / 2 + (Math.random() * 4 - 2);
-			console.log("[滑塊調試] 使用備用距離: 280px");
+			if (handleEl) break;
 		}
 
+		// 查找滑塊軌道
+		let trackEl = null;
+		let trackRect = null;
+		for (const selector of trackSelectors) {
+			const elements = document.querySelectorAll(selector);
+			for (const el of elements) {
+				if (isVisible(el)) {
+					trackEl = el;
+					trackRect = el.getBoundingClientRect();
+					console.log("[滑塊調試] 找到滑塊軌道: selector=" + selector +
+					            " left=" + trackRect.left + " width=" + trackRect.width);
+					break;
+				}
+			}
+			if (trackEl) break;
+		}
+
+		if (!handleEl || !handleRect) {
+			return { ok: false, reason: "未找到滑塊按鈕" };
+		}
+
+		// 計算位置
 		const startX = handleRect.left + handleRect.width / 2;
 		const startY = handleRect.top + handleRect.height / 2;
 
-		// 確保終點比起點大（往右滑動）
-		if (endX <= startX) {
-			console.log("[滑塊調試] 終點異常，使用備用距離");
-			endX = startX + 250;
+		let endX, endY;
+
+		if (trackRect && trackRect.width > handleRect.width) {
+			// 使用軌道計算終點（滑到軌道末端）
+			endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
+			endY = startY;
+			console.log("[滑塊調試] 使用軌道計算終點: 軌道寬度=" + trackRect.width);
+		} else {
+			// 備用：往右滑動固定距離（通常滑塊軌道約 250-300px）
+			endX = startX + 260;
+			endY = startY;
+			console.log("[滑塊調試] 使用備用距離: 260px");
 		}
 
-		console.log("[滑塊調試] handleRect: left=" + handleRect.left + ", width=" + handleRect.width);
-		console.log("[滑塊調試] 起點: (" + startX + ", " + startY + "), 終點: (" + endX + ", " + endY + ")");
+		console.log("[滑塊調試] 最終位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + endY + ")");
+		console.log("[滑塊調試] 滑動距離: " + (endX - startX) + "px");
 
 		return { ok: true, startX, startY, endX, endY };
 	}`)
