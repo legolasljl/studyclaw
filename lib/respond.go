@@ -780,38 +780,74 @@ func easeOutCubic(t float64) float64 {
 }
 
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
-	// 先移到滑塊附近（帶隨機偏移），模擬人類滑鼠移動
-	page.Mouse().Move(startX-float64(rand2.Intn(8)+3), startY+float64(rand2.Intn(6)-3))
-	humanPause(200, 400)
-	page.Mouse().Move(startX, startY)
-	humanPause(300, 600)
-	page.Mouse().Down()
-	// 按下後短暫停頓
-	humanPause(80, 200)
-
-	steps := 25 + rand2.Intn(15)
 	distanceX := endX - startX
-	distanceY := endY - startY
-	for step := 1; step <= steps; step++ {
-		t := float64(step) / float64(steps)
-		// ease-out-cubic: 快速啟動，逐漸減速（符合真人滑動習慣）
-		progress := easeOutCubic(t)
-		jitterY := float64(rand2.Intn(5)-2) * 0.5
-		curX := startX + distanceX*progress
-		curY := startY + distanceY*progress + jitterY
-		page.Mouse().Move(curX, curY)
-		// 前段快、後段慢
-		if t < 0.3 {
-			humanPause(30, 80)
-		} else if t < 0.7 {
-			humanPause(50, 120)
-		} else {
-			humanPause(80, 180)
+
+	// 1) 移到滑塊附近，再精確到按鈕中心
+	page.Mouse().Move(startX-float64(rand2.Intn(15)+5), startY+float64(rand2.Intn(10)-5))
+	humanPause(150, 350)
+	page.Mouse().Move(startX, startY)
+	humanPause(200, 500)
+
+	// 2) 按下
+	page.Mouse().Down()
+	humanPause(60, 180)
+
+	// 3) 生成人類風格的軌跡點
+	//    真人特徵：快速啟動 → 中段平穩 → 接近終點時減速 → 可能滑過頭 → 回拉修正
+	type point struct{ x, y float64; delay int }
+	var trail []point
+
+	// 階段一：快速加速（前 30%）
+	phase1Steps := 6 + rand2.Intn(4)
+	for i := 1; i <= phase1Steps; i++ {
+		t := float64(i) / float64(phase1Steps) * 0.3
+		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
+		y := startY + float64(rand2.Intn(5)-2)
+		trail = append(trail, point{x, y, 8 + rand2.Intn(20)})
+	}
+
+	// 階段二：中段平穩推進（30%-75%）
+	phase2Steps := 8 + rand2.Intn(6)
+	for i := 1; i <= phase2Steps; i++ {
+		t := 0.3 + float64(i)/float64(phase2Steps)*0.45
+		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
+		y := startY + float64(rand2.Intn(7)-3)
+		trail = append(trail, point{x, y, 15 + rand2.Intn(35)})
+	}
+
+	// 階段三：減速接近終點（75%-100%），可能微微滑過
+	overshoot := float64(rand2.Intn(12) + 3) // 滑過 3-14px
+	phase3Steps := 5 + rand2.Intn(4)
+	for i := 1; i <= phase3Steps; i++ {
+		t := 0.75 + float64(i)/float64(phase3Steps)*0.25
+		targetX := startX + distanceX*t
+		if i == phase3Steps {
+			targetX = endX + overshoot // 最後一步滑過頭
+		}
+		y := startY + float64(rand2.Intn(5)-2)
+		trail = append(trail, point{targetX, y, 25 + rand2.Intn(50)})
+	}
+
+	// 階段四：回拉修正到正確位置
+	if overshoot > 0 {
+		humanPause(40, 120)
+		correctionSteps := 2 + rand2.Intn(2)
+		for i := 1; i <= correctionSteps; i++ {
+			x := endX + overshoot*(1-float64(i)/float64(correctionSteps)) + float64(rand2.Intn(2))
+			y := startY + float64(rand2.Intn(3)-1)
+			trail = append(trail, point{x, y, 30 + rand2.Intn(60)})
 		}
 	}
 
-	// 到達終點後短暫停頓再鬆手
-	humanPause(150, 350)
+	// 4) 執行軌跡
+	for _, p := range trail {
+		page.Mouse().Move(p.x, p.y)
+		time.Sleep(time.Duration(p.delay) * time.Millisecond)
+	}
+
+	// 5) 最終精確定位 + 鬆手
+	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1))
+	humanPause(80, 250)
 	page.Mouse().Up()
 }
 
