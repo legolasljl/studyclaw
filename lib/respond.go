@@ -1535,10 +1535,14 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	radios, err := page.QuerySelectorAll(`.q-answer.choosable`)
 	if err != nil {
 		log.Errorln("获取选项失败")
-
 		return err
 	}
 	radios = filterVisibleAnswerHandles(radios)
+	if len(radios) == 0 {
+		log.Warningln("[答題] 未找到可選選項")
+		return checkNextBotton(page, questionText)
+	}
+
 	normalizedAnswer := make(map[string]struct{}, len(answer))
 	for _, item := range answer {
 		normalized := normalizeAnswerButtonText(item)
@@ -1548,37 +1552,36 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	}
 	log.Debugln("获取到", len(radios), "个按钮")
 
-	// 模擬閱讀題目的時間（大幅增加：5-10秒）
-	humanPause(5000, 10000)
+	// 快速閱讀題目（1-2秒）
+	humanPause(1000, 2000)
 
-	// 模擬人類行為（隨機滾動和鼠標移動）
-	simulateHumanBehavior(page)
-
+	// 嘗試找到匹配的答案
+	found := false
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
 		if err != nil {
-			log.Errorln("获取选项答案文本出现错误" + err.Error())
-			return err
-		}
-		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; !ok {
 			continue
 		}
-		err = clickAnswerActionHandle(radio)
-		if err != nil {
-			log.Errorln("点击选项出现错误" + err.Error())
-			return err
+		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
+			// 找到匹配的答案，點擊
+			if err := radio.Click(); err == nil {
+				log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent))
+				found = true
+				break
+			}
 		}
-		// 大幅增加選項之間的延遲（2-4秒）
-		humanPause(2000, 4000)
-		// 每次選擇後模擬人類行為
-		simulateHumanBehavior(page)
 	}
 
-	// 選擇完成後，模擬確認答案的思考時間（大幅增加：8-15秒）
-	humanPause(8000, 15000)
+	// 如果沒找到匹配的答案，隨機選擇第一個選項
+	if !found {
+		if err := radios[0].Click(); err == nil {
+			text, _ := radios[0].TextContent()
+			log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
+		}
+	}
 
-	// 提交前再次模擬人類行為
-	simulateHumanBehavior(page)
+	// 快速確認（1-2秒）
+	humanPause(1000, 2000)
 
 	return checkNextBotton(page, questionText)
 }
@@ -3120,7 +3123,7 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			}
 		}
 
-		humanPause(500, 1000)
+		humanPause(200, 400) // 快速檢測間隔
 	}
 
 	log.Warningln("[答題] 等待系統判斷超時 (檢測次數:", checkCount, ")")
@@ -3173,7 +3176,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
 		return ErrAnswerComplete
 	}
-	waitForVisibleSelector(page, buttonSelectors, 4, 300, 700)
+	waitForVisibleSelector(page, buttonSelectors, 4, 200, 400)
 
 	var lastErr error
 
@@ -3190,23 +3193,21 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		btnText, _ := btn.TextContent()
 		btnText = strings.TrimSpace(btnText)
 
-		// 在點擊確定/提交前，額外增加延遲（模擬最後確認）
-		humanPause(2000, 5000)
-		simulateHumanBehavior(page)
+		// 快速確認（0.5-1秒）
+		humanPause(500, 1000)
 
-		if err := clickAnswerActionHandle(btn); err != nil {
+		if err := btn.Click(); err != nil {
 			lastErr = err
 			continue
 		}
 		log.Infoln("[下一題] 已點擊按鈕：", btnText)
 
 		// 點擊「確定」後，等待系統判斷完成
-		// 此時「下一題」按鈕是灰色的，需要等待它變為可點擊
 		log.Infoln("[答題] 等待系統判斷答案...")
 
-		// 先等待頁面穩定
+		// 快速等待頁面穩定
 		_ = page.WaitForLoadState()
-		humanPause(500, 1000)
+		humanPause(300, 600)
 
 		// 檢測是否有滑塊
 		if hasAnswerSliderPrompt(page) {
@@ -3214,8 +3215,8 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			return ErrAnswerSliderChallenge
 		}
 
-		// 等待系統判斷完成（最多等待30秒）
-		if !waitForSystemJudgment(page, 30*time.Second) {
+		// 等待系統判斷完成（最多等待15秒，加快速度）
+		if !waitForSystemJudgment(page, 15*time.Second) {
 			// 可能是滑塊或其他問題
 			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
@@ -3227,7 +3228,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 				Timeout:   playwright.Float(15000),
 				WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 			})
-			humanPause(2000, 3000)
+			humanPause(1000, 2000)
 
 			// 刷新後再次檢測
 			if isAnswerRoundComplete(page) {
