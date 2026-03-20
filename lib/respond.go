@@ -2804,6 +2804,7 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 	nextKeywords := []string{"下一题", "继续答题", "完成"}
 	checkCount := 0
 	loggedButtons := false
+	lastConfirmDisabled := true
 
 	for time.Now().Before(deadline) {
 		checkCount++
@@ -2900,11 +2901,21 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 				if text == "确定" || text == "確定" {
 					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 					disabled, _ := isDisabled.(bool)
+
+					// 如果按鈕從禁用變為可用，說明判斷完成
+					if lastConfirmDisabled && !disabled {
+						log.Infoln("[答題] 「確定」按鈕已從禁用變為可用，判斷完成 (檢測次數:", checkCount, ")")
+						return true
+					}
+
+					// 如果按鈕變為可用，嘗試重新點擊
 					if !disabled {
 						log.Warningln("[答題] 「確定」按鈕已恢復可點擊狀態，嘗試重新點擊 (檢測次數:", checkCount, ")")
 						btn.Click()
 						humanPause(500, 1000)
 					}
+
+					lastConfirmDisabled = disabled
 					break
 				}
 			}
@@ -2989,7 +3000,10 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 點擊「確定」後，等待系統判斷完成
 		// 此時「下一題」按鈕是灰色的，需要等待它變為可點擊
 		log.Infoln("[答題] 等待系統判斷答案...")
-		humanPause(1000, 1500) // 先等待1-1.5秒
+
+		// 先等待網絡請求完成
+		_, _ = page.WaitForRequestPlaywright()
+		humanPause(500, 1000)
 
 		// 檢測是否有滑塊
 		if hasAnswerSliderPrompt(page) {
@@ -2997,8 +3011,8 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			return ErrAnswerSliderChallenge
 		}
 
-		// 等待系統判斷完成（最多等待20秒）
-		if !waitForSystemJudgment(page, 20*time.Second) {
+		// 等待系統判斷完成（最多等待30秒）
+		if !waitForSystemJudgment(page, 30*time.Second) {
 			// 可能是滑塊或其他問題
 			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
