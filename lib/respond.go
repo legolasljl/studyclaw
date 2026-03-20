@@ -487,99 +487,251 @@ func decodeSliderPosition(result interface{}) (float64, float64, float64, float6
 		nil
 }
 
-func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, float64, error) {
-	// 簡化邏輯：直接查找阿里雲滑塊的標準元素
-	result, err := page.Evaluate(`() => {
-		console.log("[滑塊調試] 開始檢測滑塊元素...");
-
-		// 阿里雲滑塊的標準選擇器
+func findSliderInDocument(page playwright.Page) (interface{}, error) {
+	return page.Evaluate(`() => {
 		const handleSelectors = [
-			"#nc_1_n1z",           // 阿里雲滑塊按鈕標準ID
+			"#nc_1_n1z",
+			"[id^='nc_'][id$='_n1z']",
 			".nc_iconfont.btn_slide",
 			".btn_slide",
-			"[class*='btn_slide']"
+			"[class*='btn_slide']",
+			".nc-lang-cnt .btn_slide",
 		];
-
 		const trackSelectors = [
-			"#nc_1_n1t",           // 阿里雲滑塊軌道標準ID
+			"#nc_1_n1t",
+			"[id^='nc_'][id$='_n1t']",
 			".nc_scale",
-			".scale",
-			"[class*='nc_scale']"
+			".scale_text",
+			"[class*='nc_scale']",
+			".nc-lang-cnt",
 		];
-
 		const isVisible = (el) => {
 			if (!el) return false;
 			const rect = el.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) return false;
 			const style = window.getComputedStyle(el);
-			return rect.width > 0 && rect.height > 0 &&
-			       style.display !== "none" && style.visibility !== "hidden";
+			return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
 		};
-
-		// 查找滑塊按鈕
-		let handleEl = null;
-		let handleRect = null;
-		for (const selector of handleSelectors) {
-			const elements = document.querySelectorAll(selector);
-			for (const el of elements) {
+		let handleEl = null, handleRect = null;
+		for (const sel of handleSelectors) {
+			for (const el of document.querySelectorAll(sel)) {
 				if (isVisible(el)) {
 					handleEl = el;
 					handleRect = el.getBoundingClientRect();
-					console.log("[滑塊調試] 找到滑塊按鈕: selector=" + selector +
-					            " left=" + handleRect.left + " width=" + handleRect.width);
+					console.log("[滑塊調試] 找到滑塊按鈕: selector=" + sel + " left=" + handleRect.left + " width=" + handleRect.width);
 					break;
 				}
 			}
 			if (handleEl) break;
 		}
-
-		// 查找滑塊軌道
-		let trackEl = null;
-		let trackRect = null;
-		for (const selector of trackSelectors) {
-			const elements = document.querySelectorAll(selector);
-			for (const el of elements) {
+		let trackEl = null, trackRect = null;
+		for (const sel of trackSelectors) {
+			for (const el of document.querySelectorAll(sel)) {
 				if (isVisible(el)) {
 					trackEl = el;
 					trackRect = el.getBoundingClientRect();
-					console.log("[滑塊調試] 找到滑塊軌道: selector=" + selector +
-					            " left=" + trackRect.left + " width=" + trackRect.width);
+					console.log("[滑塊調試] 找到滑塊軌道: selector=" + sel + " left=" + trackRect.left + " width=" + trackRect.width);
 					break;
 				}
 			}
 			if (trackEl) break;
 		}
-
 		if (!handleEl || !handleRect) {
-			return { ok: false, reason: "未找到滑塊按鈕" };
+			// 列出所有可見元素的 id/class 供調試
+			const allEls = [];
+			for (const el of document.querySelectorAll('*')) {
+				if (el.id || el.className) {
+					const r = el.getBoundingClientRect();
+					if (r.width > 0 && r.height > 0) {
+						const id = el.id || '';
+						const cls = (typeof el.className === 'string') ? el.className : '';
+						if (id.includes('nc') || id.includes('slide') || cls.includes('nc') || cls.includes('slide') || cls.includes('btn')) {
+							allEls.push(el.tagName + '#' + id + '.' + cls.substring(0, 60));
+						}
+					}
+				}
+			}
+			return { ok: false, reason: "未找到滑塊按鈕", debugElements: allEls.slice(0, 15).join(' | ') };
 		}
-
-		// 計算位置
 		const startX = handleRect.left + handleRect.width / 2;
 		const startY = handleRect.top + handleRect.height / 2;
-
 		let endX, endY;
-
 		if (trackRect && trackRect.width > handleRect.width) {
-			// 使用軌道計算終點（滑到軌道末端）
 			endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
 			endY = startY;
 			console.log("[滑塊調試] 使用軌道計算終點: 軌道寬度=" + trackRect.width);
 		} else {
-			// 備用：往右滑動固定距離（通常滑塊軌道約 250-300px）
 			endX = startX + 260;
 			endY = startY;
 			console.log("[滑塊調試] 使用備用距離: 260px");
 		}
-
 		console.log("[滑塊調試] 最終位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + endY + ")");
-		console.log("[滑塊調試] 滑動距離: " + (endX - startX) + "px");
-
 		return { ok: true, startX, startY, endX, endY };
 	}`)
-	if err != nil {
-		return 0, 0, 0, 0, err
+}
+
+func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, float64, error) {
+	// 第一步：嘗試在主頁面查找滑塊
+	log.Infoln("[答題] 嘗試在主頁面查找滑塊按鈕...")
+	result, err := findSliderInDocument(page)
+	if err == nil {
+		x1, y1, x2, y2, decErr := decodeSliderPosition(result)
+		if decErr == nil {
+			return x1, y1, x2, y2, nil
+		}
+		// 主頁面找不到，記錄調試信息
+		if m, ok := result.(map[string]interface{}); ok {
+			if debugEls, ok := m["debugElements"]; ok {
+				log.Infoln("[答題] 主頁面滑塊相關元素: ", debugEls)
+			}
+		}
 	}
-	return decodeSliderPosition(result)
+
+	// 第二步：遍歷所有 iframe 查找滑塊（阿里雲 NC 滑塊通常在 iframe 內）
+	log.Infoln("[答題] 主頁面未找到，嘗試在 iframe 中查找滑塊...")
+	frames := page.Frames()
+	for i, frame := range frames {
+		if frame == page.MainFrame() {
+			continue
+		}
+		frameURL := frame.URL()
+		log.Infoln("[答題] 檢查 iframe[", i, "]: ", frameURL)
+
+		// 在 iframe 中執行查找
+		frameResult, frameErr := frame.Evaluate(`() => {
+			const handleSelectors = [
+				"#nc_1_n1z",
+				"[id^='nc_'][id$='_n1z']",
+				".nc_iconfont.btn_slide",
+				".btn_slide",
+				"[class*='btn_slide']",
+				".nc-lang-cnt .btn_slide",
+			];
+			const trackSelectors = [
+				"#nc_1_n1t",
+				"[id^='nc_'][id$='_n1t']",
+				".nc_scale",
+				".scale_text",
+				"[class*='nc_scale']",
+				".nc-lang-cnt",
+			];
+			const isVisible = (el) => {
+				if (!el) return false;
+				const rect = el.getBoundingClientRect();
+				if (rect.width <= 0 || rect.height <= 0) return false;
+				const style = window.getComputedStyle(el);
+				return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+			};
+			let handleEl = null, handleRect = null;
+			for (const sel of handleSelectors) {
+				for (const el of document.querySelectorAll(sel)) {
+					if (isVisible(el)) {
+						handleEl = el;
+						handleRect = el.getBoundingClientRect();
+						break;
+					}
+				}
+				if (handleEl) break;
+			}
+			if (!handleEl || !handleRect) {
+				return { ok: false, reason: "iframe內未找到滑塊按鈕" };
+			}
+			let trackRect = null;
+			for (const sel of trackSelectors) {
+				for (const el of document.querySelectorAll(sel)) {
+					if (isVisible(el)) {
+						trackRect = el.getBoundingClientRect();
+						break;
+					}
+				}
+				if (trackRect) break;
+			}
+			return {
+				ok: true,
+				handleRect: { left: handleRect.left, top: handleRect.top, width: handleRect.width, height: handleRect.height },
+				trackRect: trackRect ? { left: trackRect.left, top: trackRect.top, width: trackRect.width, height: trackRect.height } : null,
+			};
+		}`)
+		if frameErr != nil {
+			continue
+		}
+
+		frameMap, ok := frameResult.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		okVal, _ := frameMap["ok"].(bool)
+		if !okVal {
+			continue
+		}
+
+		log.Infoln("[答題] 在 iframe[", i, "] 中找到滑塊按鈕！")
+
+		// 獲取 iframe 在主頁面中的位置偏移
+		iframeOffset, offsetErr := page.Evaluate(`(frameIndex) => {
+			const iframes = document.querySelectorAll('iframe');
+			let idx = 0;
+			for (const iframe of iframes) {
+				const rect = iframe.getBoundingClientRect();
+				if (rect.width > 0 && rect.height > 0) {
+					if (idx === frameIndex) {
+						return { left: rect.left, top: rect.top };
+					}
+					idx++;
+				}
+			}
+			// 備用：遍歷所有 iframe 找到匹配的
+			for (const iframe of iframes) {
+				const rect = iframe.getBoundingClientRect();
+				if (rect.width > 0 && rect.height > 0) {
+					return { left: rect.left, top: rect.top };
+				}
+			}
+			return { left: 0, top: 0 };
+		}`, i-1) // -1 因為跳過了 mainFrame
+		if offsetErr != nil {
+			log.Warningln("[答題] 獲取 iframe 偏移失敗，使用 0 偏移")
+			iframeOffset = map[string]interface{}{"left": float64(0), "top": float64(0)}
+		}
+
+		offsetMap, _ := iframeOffset.(map[string]interface{})
+		offsetLeft, _ := offsetMap["left"].(float64)
+		offsetTop, _ := offsetMap["top"].(float64)
+		log.Infoln("[答題] iframe 偏移: left=", offsetLeft, " top=", offsetTop)
+
+		// 解析滑塊位置（iframe 內部座標）
+		handleRectMap, _ := frameMap["handleRect"].(map[string]interface{})
+		hLeft, _ := handleRectMap["left"].(float64)
+		hTop, _ := handleRectMap["top"].(float64)
+		hWidth, _ := handleRectMap["width"].(float64)
+		hHeight, _ := handleRectMap["height"].(float64)
+
+		// 轉換為主頁面座標 = iframe偏移 + iframe內部座標
+		startX := offsetLeft + hLeft + hWidth/2
+		startY := offsetTop + hTop + hHeight/2
+
+		var endX, endY float64
+		if trackRectRaw, ok := frameMap["trackRect"]; ok && trackRectRaw != nil {
+			if trackRectMap, ok := trackRectRaw.(map[string]interface{}); ok {
+				tLeft, _ := trackRectMap["left"].(float64)
+				tWidth, _ := trackRectMap["width"].(float64)
+				if tWidth > hWidth {
+					endX = offsetLeft + tLeft + tWidth - hWidth/2 - 5
+					endY = startY
+					log.Infoln("[答題] iframe 內軌道寬度: ", tWidth)
+				}
+			}
+		}
+		if endX == 0 {
+			endX = startX + 260
+			endY = startY
+		}
+
+		log.Infoln("[答題] iframe 滑塊位置：起點(", startX, ",", startY, ") 終點(", endX, ",", endY, ")")
+		return startX, startY, endX, endY, nil
+	}
+
+	return 0, 0, 0, 0, errors.New("未找到滑塊按鈕（主頁面和所有iframe均未找到）")
 }
 
 func easeOutCubic(t float64) float64 {
@@ -907,8 +1059,8 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			c.Push(user.PushId, "text", "已加载专项答题模块")
 		}
 	}
-	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 500, 900)
-	humanPause(1800, 3200)
+	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 300, 600)
+	humanPause(800, 1400)
 	if err := ensureAnswerQuestionReady(page); err != nil {
 		if isAnswerRoundComplete(page) {
 			log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -955,7 +1107,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			if !c.handleAnswerSliderChallenge(page, user, authChecker, "答題頁面") {
 				return false
 			}
-			humanPause(3000, 5000)
+			humanPause(1500, 2500)
 			goto label
 		}
 		if err := ensureAnswerQuestionReady(page); err != nil {
@@ -964,7 +1116,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				return true
 			}
 			log.Debugln("[答題] 題目區域暫未就緒，繼續等待重試: ", err.Error())
-			humanPause(1200, 2000)
+			humanPause(500, 1000)
 			continue
 		}
 		switch modelName {
@@ -995,7 +1147,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 		}
 		if category != nil {
 			_ = category.WaitForElementState(`visible`)
-			humanPause(800, 1500)
+			humanPause(300, 600)
 
 			// 获取题目
 			question, err := page.QuerySelector(
@@ -1089,12 +1241,12 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 							}
 							log.Errorln("[答错重试] 选择失败：", radioErr.Error())
 						}
-						humanPause(2000, 3500)
+						humanPause(800, 1500)
 					} else {
 						// 既没有继续按钮也没有选项，可能需要刷新页面
 						log.Infoln("[答错重试] 无法找到按钮或选项，尝试刷新页面")
 						page.Reload()
-						humanPause(3000, 5000)
+						humanPause(1500, 2500)
 					}
 				}
 				continue
@@ -1158,7 +1310,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 						log.Errorln("[無提示] 选择失败：", radioErr.Error())
 					}
 				}
-				humanPause(1600, 2600)
+				humanPause(600, 1200)
 				tryCount++
 				continue
 			}
@@ -1174,7 +1326,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 
 			// 等待提示内容加载
 			log.Debugln("已点击提示按钮，等待内容加载...")
-			humanPause(2200, 3600)
+			humanPause(800, 1400)
 
 			// 尝试等待红字提示出现
 			_, err = page.WaitForSelector(`font[color="red"]`, playwright.PageWaitForSelectorOptions{
@@ -1195,7 +1347,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			}
 
 			// 额外等待确保内容完整
-			humanPause(2200, 4200)
+			humanPause(500, 1000)
 			log.Debugln("已获取网页内容")
 
 			// 关闭提示信息
@@ -1285,8 +1437,8 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 					return false
 				}
 
-				// 滑塊通過後，增加等待時間讓頁面狀態穩定
-				humanPause(3000, 5000)
+				// 滑塊通過後，等待頁面狀態穩定
+				humanPause(1500, 2500)
 
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -1380,7 +1532,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 							btnText = strings.TrimSpace(btnText)
 							if clickErr := clickAnswerActionHandle(btn); clickErr == nil {
 								log.Infoln("[答題] 滑塊通過後點擊按鈕：", btnText)
-								humanPause(2500, 4000)
+								humanPause(1000, 2000)
 								break
 							}
 						}
@@ -1388,7 +1540,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 
 				log.Infoln("[答題] 提交後的滑塊驗證已通過，等待加載下一題")
-				humanPause(4000, 6000)
+				humanPause(1500, 2500)
 				continue
 			}
 
@@ -1398,14 +1550,14 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 					log.Errorln("[答題] 連續失敗次數過多，停止答題")
 					return false
 				}
-				humanPause(1800, 3000)
+				humanPause(800, 1500)
 				continue
 			}
 			authChecker.Reset()
 		}
 
 		// 等待服務器積分同步
-		humanPause(2000, 3500)
+		humanPause(800, 1500)
 		latestScore, scoreErr := getUserScoreWithRetry(user, cfg.ScoreRetryTimes)
 		if scoreErr != nil {
 			if _, ok := scoreErr.(*AuthError); ok || CheckAuthError(scoreErr) {
@@ -1520,8 +1672,8 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	}
 	log.Debugln("获取到", len(radios), "个按钮")
 
-	// 快速閱讀題目（1-2秒）
-	humanPause(1000, 2000)
+	// 快速閱讀題目
+	humanPause(400, 800)
 
 	// 嘗試找到匹配的答案
 	found := false
@@ -1548,8 +1700,8 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 		}
 	}
 
-	// 快速確認（1-2秒）
-	humanPause(1000, 2000)
+	// 快速確認
+	humanPause(300, 600)
 
 	return checkNextBotton(page, questionText)
 }
@@ -2793,10 +2945,10 @@ func FillBlank(page playwright.Page, questionText string, tips []string) error {
 			return fmt.Errorf("填空框第%d项填充失败: %w", i+1, err)
 		}
 
-		humanPause(700, 1600)
+		humanPause(300, 600)
 	}
 
-	humanPause(1200, 2200)
+	humanPause(400, 800)
 	return checkNextBotton(page, questionText)
 }
 
@@ -2834,7 +2986,7 @@ func clickAnswerContinueButton(page playwright.Page, buttonSelectors []string) e
 				}
 			}
 
-			humanPause(1200, 2200)
+			humanPause(500, 1000)
 			if isAnswerRoundComplete(page) {
 				log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
 				return ErrAnswerComplete
@@ -2899,7 +3051,7 @@ func clickAnswerContinueButton(page playwright.Page, buttonSelectors []string) e
 					}
 				}
 
-				humanPause(1200, 2200)
+				humanPause(500, 1000)
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
 					return ErrAnswerComplete
@@ -2938,7 +3090,7 @@ func waitForAnswerAdvance(page playwright.Page, previousQuestionText string, but
 			return err
 		}
 		if attempt < 7 {
-			humanPause(900, 1600)
+			humanPause(400, 800)
 		}
 	}
 	if previousKey != "" {
@@ -3161,8 +3313,8 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		btnText, _ := btn.TextContent()
 		btnText = strings.TrimSpace(btnText)
 
-		// 快速確認（0.5-1秒）
-		humanPause(500, 1000)
+		// 快速確認
+		humanPause(200, 500)
 
 		if err := btn.Click(); err != nil {
 			lastErr = err
@@ -3272,7 +3424,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			if success, _ := payload["ok"].(bool); success {
 				text, _ := payload["text"].(string)
 				log.Infoln("[下一題] 已透過全局搜尋點擊按鈕：", text)
-				humanPause(1800, 2800)
+				humanPause(600, 1200)
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
 					return ErrAnswerComplete
