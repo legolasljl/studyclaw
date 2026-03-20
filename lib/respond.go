@@ -3001,8 +3001,10 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 此時「下一題」按鈕是灰色的，需要等待它變為可點擊
 		log.Infoln("[答題] 等待系統判斷答案...")
 
-		// 先等待網絡請求完成
-		_, _ = page.WaitForRequestPlaywright()
+		// 先等待頁面穩定
+		_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+			State: playwright.WaitUntilStateNetworkidle,
+		})
 		humanPause(500, 1000)
 
 		// 檢測是否有滑塊
