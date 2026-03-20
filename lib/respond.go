@@ -2784,6 +2784,80 @@ func waitForAnswerAdvance(page playwright.Page, previousQuestionText string, but
 	return nil
 }
 
+// waitForSystemJudgment 等待系統判斷答案完成
+// 點擊「確定」後，系統需要時間判斷答案是否正確，此時「下一題」按鈕是灰色的
+// 需要等待「下一題」按鈕變為可點擊狀態
+func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	nextButtonSelectors := []string{
+		`#app .action-row > button`,
+		`.action-row button`,
+		`button.ant-btn`,
+		`button`,
+	}
+	nextKeywords := []string{"下一题", "继续答题", "完成"}
+
+	for time.Now().Before(deadline) {
+		// 檢測是否到達結果頁
+		if isAnswerRoundComplete(page) {
+			log.Infoln("[答題] 系統判斷完成，已到達結果頁")
+			return true
+		}
+
+		// 檢測是否有滑塊
+		if hasAnswerSliderPrompt(page) {
+			log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
+			return false
+		}
+
+		// 檢測「下一題」按鈕是否可點擊
+		for _, selector := range nextButtonSelectors {
+			btns, err := page.QuerySelectorAll(selector)
+			if err != nil || len(btns) == 0 {
+				continue
+			}
+			for _, btn := range btns {
+				text, _ := btn.TextContent()
+				text = strings.TrimSpace(strings.ReplaceAll(text, " ", ""))
+				// 檢查是否是「下一題」按鈕
+				isNextButton := false
+				for _, keyword := range nextKeywords {
+					if strings.Contains(text, keyword) {
+						isNextButton = true
+						break
+					}
+				}
+				if !isNextButton {
+					continue
+				}
+				// 檢查按鈕是否可點擊（不是灰色/禁用狀態）
+				isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+				if disabled, ok := isDisabled.(bool); ok && !disabled {
+					// 額外檢查：按鈕是否可見且可交互
+					isVisible, _ := btn.Evaluate(`el => {
+						const rect = el.getBoundingClientRect();
+						const style = window.getComputedStyle(el);
+						return style.display !== 'none' &&
+							style.visibility !== 'hidden' &&
+							rect.width > 0 &&
+							rect.height > 0 &&
+							!el.hasAttribute('disabled');
+					}`)
+					if visible, ok := isVisible.(bool); ok && visible {
+						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊")
+						return true
+					}
+				}
+			}
+		}
+
+		humanPause(500, 1000)
+	}
+
+	log.Warningln("[答題] 等待系統判斷超時")
+	return false
+}
+
 func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 	keywords := []string{"下一题", "确定", "提交", "完成", "确认"}
 	buttonSelectors := []string{
@@ -2816,14 +2890,35 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		if btn == nil {
 			continue
 		}
+		btnText, _ := btn.TextContent()
+		btnText = strings.TrimSpace(btnText)
+
 		if err := clickAnswerActionHandle(btn); err != nil {
 			lastErr = err
 			continue
 		}
-		text, _ := btn.TextContent()
-		text = strings.TrimSpace(text)
-		log.Infoln("[下一題] 已點擊按鈕：", text)
-		humanPause(1800, 2800)
+		log.Infoln("[下一題] 已點擊按鈕：", btnText)
+
+		// 點擊「確定」後，等待系統判斷完成
+		// 此時「下一題」按鈕是灰色的，需要等待它變為可點擊
+		log.Infoln("[答題] 等待系統判斷答案...")
+		humanPause(1000, 1500) // 先等待1-1.5秒
+
+		// 檢測是否有滑塊
+		if hasAnswerSliderPrompt(page) {
+			log.Warningln("[答題] 提交後出現滑塊驗證，返回上層處理")
+			return ErrAnswerSliderChallenge
+		}
+
+		// 等待系統判斷完成（最多等待8秒）
+		if !waitForSystemJudgment(page, 8*time.Second) {
+			// 可能是滑塊或其他問題
+			if hasAnswerSliderPrompt(page) {
+				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
+				return ErrAnswerSliderChallenge
+			}
+			log.Warningln("[答題] 系統判斷超時，嘗試繼續")
+		}
 
 		if isAnswerRoundComplete(page) {
 			log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
