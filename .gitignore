@@ -1,0 +1,11 @@
+*.exe
+.idea/
+*.png
+/logs/
+*.log
+/config/config.yml
+/config/user.db
+/config/logs/
+/chromium-857950/
+/tools
+/studyclaw

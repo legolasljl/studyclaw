@@ -1,0 +1,17 @@
+version: "3.5"
+services:
+  studyclaw:
+    image: ghcr.io/legolasljl/studyclaw:latest
+    # 容器名
+    container_name: studyclaw
+    environment:
+    # 时区
+      - TZ=Asia/Shanghai
+    shm_size: 1gb
+    # 配置文件路径
+    volumes:
+      - ./config:/opt/config
+    # 映射端口
+    ports:
+      - 8080:8080
+    restart: unless-stopped

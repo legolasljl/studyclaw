@@ -1,0 +1,175 @@
+# 學習模式：1 = 文章 + 音頻，2 = 文章 + 音頻 + 每日答題
+model: 1
+
+# 日誌等級
+# panic
+# fatal
+# error
+# warn, warning
+# info
+# debug
+# trace
+log_level: "info"
+
+# 是否顯示瀏覽器
+show_browser: false
+
+# 跳轉學習 App 的 scheme，預設使用倉庫內的跳轉頁
+scheme: "https://hamacd.github.io/nxxjump.github.io?"
+
+study:
+  # 僅選擇最近 N 天內的文章或視頻，0 表示不過濾
+  recent_days: 180
+  # 當最近 N 天沒有可用內容時，是否回退到全部內容
+  fallback_to_all: true
+  # 頁面導航總嘗試次數，包含首次請求
+  navigation_retry_times: 4
+  # 導航失敗後的等待秒數
+  retry_backoff_seconds: 5
+  # 每隔多少秒才做一次捲動，降低不必要頁面操作
+  operation_interval_seconds: 7
+  # 取得積分失敗時的重試次數
+  score_retry_times: 3
+  article_duration_seconds: 90
+  article_duration_jitter_seconds: 20
+  video_duration_seconds: 80
+  video_duration_jitter_seconds: 15
+  audio_duration_seconds: 80
+  audio_duration_jitter_seconds: 15
+  # 登入失效時的最大重試次數
+  auth_failure_threshold: 5
+  # 連續失敗後的冷卻時間(分鐘)
+  failure_cooldown_minutes: 5
+  # 滑塊驗證最大失敗次數
+  max_slider_failures: 5
+  # 是否啟用快速失敗模式
+  fast_fail_enabled: false
+push:
+  # DingTalk 群機器人示例
+  # access_token 只填 token 本體，不要貼整條 webhook
+  ding:
+    enable: false
+    access_token: "your_ding_access_token"
+    secret: "SECxxxxxxxxxxxxxxxxxxxxxxxx"
+  # PushPlus 推送示例
+  # 詳見：https://www.pushplus.plus/
+  push_plus:
+    enable: false
+    token: "your_pushplus_token"
+    topic: ""
+
+# Telegram 互動模式示例
+tg:
+  enable: false
+  chat_id: 123456789
+  token: "123456789:telegram_bot_token"
+  # Telegram 代理，不設定則走系統代理
+  proxy: ""
+  # 自訂 Telegram API，可自行反代
+  custom_api: "https://api.telegram.org"
+  # 白名單 id，可填個人 chat_id 或群組 id
+  white_list:
+    - 123456789
+
+# 網頁端配置
+web:
+  # 是否啟用網頁
+  enable: true
+  host: 0.0.0.0
+  port: 8080
+  # 網頁端管理員登入帳號
+  account: admin
+  # 網頁端管理員登入密碼
+  password: admin
+  # 普通用戶帳號密碼示例，支援多個用戶
+  common_user:
+    user1: "password1"
+    user2: "password2"
+
+# 微信公眾號測試號配置示例
+wechat:
+  # 是否啟用
+  enable: false
+  # 開發者平台設定的 token
+  token: "your_wechat_token"
+  # 開發者平台的 secret
+  secret: "your_wechat_secret"
+  # 開發者平台的 app_id
+  app_id: "wx1234567890abcdef"
+  # 登入消息模板 id
+  login_temp_id: "wechat_login_template_id"
+  # 普通消息模板 id
+  normal_temp_id: "wechat_normal_template_id"
+  # 若 cookie 失效，是否推送提醒
+  push_login_warn: false
+  # 微信管理員 openid
+  super_open_id: "openid_example"
+
+# go-cqhttp 推送配置示例
+qq:
+  # 是否啟用 QQ 推送
+  enable: false
+  # go-cqhttp 監聽地址
+  post_addr: "http://127.0.0.1:5700"
+  super_user: 100000001
+  access_token: "gocq_access_token"
+  white_list:
+    - 100000001
+
+# PushDeer 推送配置示例
+# 詳見：https://www.pushdeer.com/official.html
+push_deer:
+  enable: false
+  api: "https://api2.pushdeer.com"
+  token: "PDUxxxxxxxxxxxxxxxx"
+
+# 登入重試配置
+retry:
+  # 重試次數
+  times: 0
+
+  # 重試之間的時間間隔，單位為分鐘
+  intervals: 5
+
+# 是否定時執行學習程序，格式為 cron
+# "9 19 * * *" 每天19点9分执行一次
+# "0 10 * * *” 每天早上十点执行一次
+cron: "0 0 * * *"
+
+# 定時任務隨機等待時間，單位：分鐘
+cron_random_wait: 0
+
+# Windows 環境自訂瀏覽器路徑，僅支援 Chromium 系列
+edge_path: ""
+
+# 啟動時等待時間，避免代理啟動比程式慢，單位秒
+start_wait: 0
+
+# 專項答題可接受的最小分值；目前主流程不使用，但代碼仍保留
+special_min_score: 10
+
+# 題目搜尋順序；目前主流程不使用，但代碼仍保留
+reverse_order: false
+
+# GitHub 代理地址
+github_proxy: https://github.com
+
+# 是否開啟配置檔熱重載；修改並儲存後會自動重新啟動
+hot_reload: true
+
+# 自訂消息推送，會在定時任務執行前推送
+custom_message: "自訂消息$$$https://example.com"
+# 自訂消息推送定時
+custom_cron: ""
+
+pool_size: 1
+
+# 每次定時任務執行的答題輪數；目前主流程不使用，但代碼仍保留
+daily_rounds: 3
+
+weekly_min_score:
+
+ji_guang_push:
+  enable: false
+  secret: "your_jpush_secret"
+  app_key: "your_jpush_app_key"

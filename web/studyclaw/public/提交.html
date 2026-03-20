@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+    <script>
+        function saveConfig() {
+            // 获取表单数据
+            var formData = new FormData(document.getElementById('configForm'));
+
+            // 将FormData转换为对象
+            var data = {};
+            formData.forEach(function(value, key){
+                if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
+                    // 如果是字符串表示的布尔值，转换为真正的布尔值
+                    value = value.toLowerCase() === 'true';
+                }
+                data[key] = value;
+            });
+
+            // 转换为 YAML 格式
+            var yamlData = jsyaml.dump(data);
+
+            // 创建 Blob 对象
+            var blob = new Blob([yamlData], { type: 'text/plain' });
+
+            // 创建下载链接
+            var link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = 'config.yml';
+
+            // 模拟点击下载
+            link.click();
+        }
+    </script>
+
+    <title>刷课程序配置</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        form {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        input[type="checkbox"] {
+            width: auto;
+        }
+        input[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>刷课程序配置</h1>
+
+    <form id="configForm" action="/submit" method="post">
+        <label for="model">刷课模式：</label>
+        <select id="model" name="model">
+            <option value="1">只刷文章和视频</option>
+            <option value="2">只刷文章和视频和每日答题</option>
+            <option value="3" selected>刷文章和视频和每日答题每周答题和专项答题</option>
+            <option value="4">只进行每日答题每周答题和专项答题</option>
+        </select>
+
+        <label for="log_level">日志等级：</label>
+        <select name="log_level" id="log_level">
+            <option value="panic">panic</option>
+            <option value="fatal">fatal</option>
+            <option value="error">error</option>
+            <option value="warn">warn</option>
+            <option value="info" selected>info</option>
+            <option value="debug">debug</option>
+            <option value="trace">trace</option>
+        </select>
+
+        <label for="show_browser">是否显示浏览器：</label>
+        <input type="checkbox" name="show_browser" id="show_browser" value="false">
+        <br><br>
+        <label for="scheme">跳转学习强国的scheme：</label>
+        <input type="text" name="scheme" id="scheme" value="https://hamacd.github.io/nxxjump.github.io?">
+        <br><br>
+        <h2>推送配置</h2>
+        <label for="ding_enable">钉钉推送：</label>
+        <input type="checkbox" name="ding_enable" id="ding_enable" value="false">
+        <br><br>
+        <label for="ding_access_token">钉钉推送的Access Token：</label>
+        <input type="text" name="ding_access_token" id="ding_access_token">
+        <br><br>
+        <label for="ding_secret">钉钉推送的Secret：</label>
+        <input type="text" name="ding_secret" id="ding_secret">
+        <br><br>
+        <label for="push_plus_enable">Push Plus推送：</label>
+        <input type="checkbox" name="push_plus_enable" id="push_plus_enable" value="false">
+        <br><br>
+        <label for="push_plus_token">Push Plus推送的Token：</label>
+        <input type="text" name="push_plus_token" id="push_plus_token">
+        <br><br>
+        <fieldset>
+            <legend>TG配置</legend>
+            <label for="tg_enable">启用TG：</label>
+            <input type="checkbox" id="tg_enable" name="tg_enable" checked>
+
+            <label for="tg_chat_id">TG Chat ID：</label>
+            <input type="text" id="tg_chat_id" name="tg_chat_id" value="5076326886">
+
+            <label for="tg_token">TG Token：</label>
+            <input type="text" id="tg_token" name="tg_token" value="6880013604:AAG_BYRP38mj4U2fuAFszkbWPu4xfoPE1hM">
+
+            <label for="tg_proxy">TG 代理：</label>
+            <input type="text" id="tg_proxy" name="tg_proxy" value="http://127.0.0.1:7890">
+
+            <label for="tg_custom_api">TG 自定义API：</label>
+            <input type="text" id="tg_custom_api" name="tg_custom_api" value="https://api.telegram.org">
+
+            <!-- 白名单配置（多个值） -->
+<label for="white_list">白名单：</label>
+<textarea id="white_list" name="white_list">5076326886</textarea>
+
+        </fieldset>
+
+        <!-- 网页端配置 -->
+        <fieldset>
+            <legend>网页端配置</legend>
+            <label for="web_enable">启用网页：</label>
+            <input type="checkbox" id="web_enable" name="web_enable" checked>
+
+            <label for="web_host">网页端主机：</label>
+            <input type="text" id="web_host" name="web_host" value="0.0.0.0">
+
+            <label for="web_port">网页端端口：</label>
+            <input type="text" id="web_port" name="web_port" value="8080">
+
+            <label for="web_account">网页端登录账号：</label>
+            <input type="text" id="web_account" name="web_account" value="admin">
+
+            <label for="web_password">网页端登录密码：</label>
+            <input type="password" id="web_password" name="web_password" value="admin">
+
+            <label for="web_common_user">Web 普通用户：</label>
+            <div id="common_user_list">
+                <div>
+                    <input type="text" name="web_common_user[]" placeholder="用户1:密码1">
+                    <button type="button" onclick="addCommonUser()">添加用户</button>
+                </div>
+            </div>
+
+            <script>
+                function addCommonUser() {
+                    var container = document.getElementById('common_user_list');
+                    var div = document.createElement('div');
+                    var input = document.createElement('input');
+                    var button = document.createElement('button');
+
+                    input.type = 'text';
+                    input.name = 'web_common_user[]';
+                    input.placeholder = '用户:密码';
+
+                    button.type = 'button';
+                    button.textContent = '移除用户';
+                    button.onclick = function () {
+                        container.removeChild(div);
+                    };
+
+                    div.appendChild(input);
+                    div.appendChild(button);
+                    container.appendChild(div);
+                }
+            </script>
+        </fieldset>
+        <!-- 微信公众号配置 -->
+        <fieldset>
+            <legend>微信公众号配置</legend>
+            <label for="wechat_enable">启用微信公众号：</label>
+            <input type="checkbox" id="wechat_enable" name="wechat_enable">
+
+            <label for="wechat_token">微信 Token：</label>
+            <input type="text" id="wechat_token" name="wechat_token">
+
+            <label for="wechat_secret">微信 Secret：</label>
+            <input type="text" id="wechat_secret" name="wechat_secret">
+
+            <label for="wechat_app_id">微信 App ID：</label>
+            <input type="text" id="wechat_app_id" name="wechat_app_id">
+
+            <label for="wechat_login_temp_id">微信登录消息模板 ID：</label>
+            <input type="text" id="wechat_login_temp_id" name="wechat_login_temp_id">
+
+            <label for="wechat_normal_temp_id">微信普通消息模板 ID：</label>
+            <input type="text" id="wechat_normal_temp_id" name="wechat_normal_temp_id">
+
+            <label for="wechat_push_login_warn">微信登录提醒：</label>
+            <input type="checkbox" id="wechat_push_login_warn" name="wechat_push_login_warn">
+
+            <label for="wechat_super_open_id">微信管理员 OpenID：</label>
+            <input type="text" id="wechat_super_open_id" name="wechat_super_open_id">
+        </fieldset>
+
+        <!-- gocq推送配置 -->
+        <fieldset>
+            <legend>gocq推送配置</legend>
+            <label for="qq_enable">启用gocq推送：</label>
+            <input type="checkbox" id="qq_enable" name="qq_enable">
+
+            <label for="qq_post_addr">gocq监听地址：</label>
+            <input type="text" id="qq_post_addr" name="qq_post_addr">
+
+            <label for="qq_super_user">gocq超级用户：</label>
+            <input type="text" id="qq_super_user" name="qq_super_user">
+
+            <label for="qq_access_token">gocq访问令牌：</label>
+            <input type="text" id="qq_access_token" name="qq_access_token">
+
+            <label for="qq_white_list">gocq白名单：</label>
+            <input type="text" id="qq_white_list" name="qq_white_list">
+        </fieldset>
+
+        <!-- pushDeer推送配置 -->
+        <fieldset>
+            <legend>pushDeer推送配置</legend>
+            <label for="push_deer_enable">启用pushDeer推送：</label>
+            <input type="checkbox" id="push_deer_enable" name="push_deer_enable">
+
+            <label for="push_deer_api">pushDeer API：</label>
+            <input type="text" id="push_deer_api" name="push_deer_api">
+
+            <label for="push_deer_token">pushDeer令牌：</label>
+            <input type="text" id="push_deer_token" name="push_deer_token">
+        </fieldset>
+        <!-- 登录重试配置 -->
+        <fieldset>
+            <legend>登录重试配置</legend>
+            <label for="retry_times">重试次数：</label>
+            <input type="number" id="retry_times" name="retry_times" value="0">
+
+            <label for="retry_intervals">重试间隔（分钟）：</label>
+            <input type="number" id="retry_intervals" name="retry_intervals" value="5">
+        </fieldset>
+
+        <!-- 定时执行学习程序配置 -->
+        <fieldset>
+            <legend>定时执行学习程序配置</legend>
+            <label for="cron">Cron表达式：</label>
+            <input type="text" id="cron" name="cron" value="0 0 * * *">
+
+            <label for="cron_random_wait">定时任务随机等待时间（分钟）：</label>
+            <input type="number" id="cron_random_wait" name="cron_random_wait" value="0">
+        </fieldset>
+
+        <!-- Windows环境自定义浏览器路径 -->
+        <label for="edge_path">Windows环境自定义浏览器路径：</label>
+        <input type="text" id="edge_path" name="edge_path">
+
+        <!-- 启动时等待时间 -->
+        <label for="start_wait">启动时等待时间（秒）：</label>
+        <input type="number" id="start_wait" name="start_wait" value="0">
+
+        <!-- 专项答题配置 -->
+        <fieldset>
+            <legend>专项答题配置</legend>
+            <label for="special_min_score">专项答题最小分值：</label>
+            <input type="number" id="special_min_score" name="special_min_score" value="10">
+
+            <!-- 其他专项答题配置 ... -->
+        </fieldset>
+
+        <!-- GitHub代理地址 -->
+        <label for="github_proxy">GitHub代理地址：</label>
+        <input type="text" id="github_proxy" name="github_proxy" value="https://github.com">
+
+        <!-- 热重载 -->
+        <label for="hot_reload">是否开启配置文件热重载：</label>
+        <input type="checkbox" id="hot_reload" name="hot_reload" checked>
+
+        <!-- 自定义消息推送 -->
+        <label for="custom_message">自定义消息推送：</label>
+        <input type="text" id="custom_message" name="custom_message" placeholder="自定义消息$$$https://www.baidu.com">
+
+        <!-- 自定义消息推送定时 -->
+<label for="custom_cron">自定义消息推送定时（Cron表达式）：</label>
+<input type="text" id="custom_cron" name="custom_cron" value="">
+
+<!-- 连接池大小 -->
+<label for="pool_size">连接池大小：</label>
+<input type="number" id="pool_size" name="pool_size" value="1">
+
+<!-- 每周最低分数 -->
+<label for="weekly_min_score">每周最低分数：</label>
+<input type="number" id="weekly_min_score" name="weekly_min_score">
+
+<!-- 极光推送配置 -->
+<fieldset>
+    <legend>极光推送配置</legend>
+    <label for="ji_guang_push_enable">启用极光推送：</label>
+    <input type="checkbox" id="ji_guang_push_enable" name="ji_guang_push_enable">
+
+    <label for="ji_guang_push_secret">极光推送 Secret：</label>
+    <input type="text" id="ji_guang_push_secret" name="ji_guang_push_secret">
+
+    <label for="ji_guang_push_app_key">极光推送 App Key：</label>
+    <input type="text" id="ji_guang_push_app_key" name="ji_guang_push_app_key">
+</fieldset>
+
+
+
+        <input type="submit" value="提交">
+        <input type="button" value="保存为文本文件" onclick="saveConfig()">
+    </form>
+
+    <!-- <script>
+        document.getElementById('configForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            saveConfigAsYaml();
+        });
+
+        document.getElementById('saveButton').addEventListener('click', function() {
+            saveConfigAsYaml();
+        });
+
+        function saveConfigAsYaml() {
+            // 收集表单数据
+            var formData = new FormData(document.getElementById('configForm'));
+            var formDataObject = {};
+            formData.forEach(function(value, key){
+                formDataObject[key] = value;
+            });
+
+            // 将数据转为 YAML 格式
+            var yamlData = jsyaml.dump(formDataObject);
+
+            // 创建一个Blob对象
+            var blob = new Blob([yamlData], { type: 'application/x-yaml' });
+
+            // 创建一个下载链接
+            var link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = 'config.yml';
+
+            // 模拟点击下载链接
+            link.click();
+        }
+    </script> -->
+</body>
+</html>
