@@ -74,8 +74,8 @@ func humanPause(minMs int, maxMs int) {
 // simulateHumanBehavior 模擬人類在頁面上的自然行為（鼠標移動、滾動等）
 func simulateHumanBehavior(page playwright.Page) {
 	// 隨機頁面滾動
-	scrollDirection := rand.Intn(3)
-	scrollAmount := rand.Intn(150) + 50
+	scrollDirection := rand2.Intn(3)
+	scrollAmount := rand2.Intn(150) + 50
 	var scrollY int
 	switch scrollDirection {
 	case 0: // 向下滾動
@@ -91,8 +91,8 @@ func simulateHumanBehavior(page playwright.Page) {
 	}
 
 	// 隨機鼠標移動到頁面不同位置
-	mouseX := rand.Intn(800) + 100
-	mouseY := rand.Intn(500) + 100
+	mouseX := rand2.Intn(800) + 100
+	mouseY := rand2.Intn(500) + 100
 	_, _ = page.Evaluate(fmt.Sprintf(`() => {
 		const event = new MouseEvent('mousemove', {
 			bubbles: true,
@@ -1661,8 +1661,8 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 	box, err := handle.BoundingBox()
 	if err == nil && box != nil {
 		// 先移動到元素附近（不是直接到元素上）
-		randomOffsetX := float64(rand.Intn(100) - 50) // -50 到 50 的隨機偏移
-		randomOffsetY := float64(rand.Intn(80) - 40)
+		randomOffsetX := float64(rand2.Intn(100) - 50) // -50 到 50 的隨機偏移
+		randomOffsetY := float64(rand2.Intn(80) - 40)
 		_ = handle.Hover(playwright.ElementHandleHoverOptions{
 			Timeout: playwright.Float(3000),
 			Position: &playwright.Position{
