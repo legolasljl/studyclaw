@@ -2820,23 +2820,37 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			return false
 		}
 
+		// 第一次檢測時，打印頁面狀態（用於調試）
+		if checkCount == 1 {
+			// 檢查是否有錯誤提示或加載狀態
+			errorText, _ := page.Evaluate(`() => {
+				const errorEl = document.querySelector('.error, .ant-message, .ant-alert, [class*="error"], [class*="loading"]');
+				return errorEl ? errorEl.textContent : '';
+			}`)
+			if errText, ok := errorText.(string); ok && errText != "" {
+				log.Infoln("[答題] 調試：檢測到提示信息: ", errText)
+			}
+		}
+
 		// 檢測「下一題」按鈕是否可點擊
-		for _, selector := range nextButtonSelectors {
+		for selectorIdx, selector := range nextButtonSelectors {
 			btns, err := page.QuerySelectorAll(selector)
 			if err != nil || len(btns) == 0 {
 				continue
 			}
 
-			// 第一次檢測時，打印所有按鈕信息（用於調試）
-			if !loggedButtons && checkCount <= 2 {
-				loggedButtons = true
-				log.Infoln("[答題] 調試：頁面按鈕信息 (選擇器:", selector, ", 數量:", len(btns), ")")
+			// 前幾次檢測時，打印所有選擇器的按鈕信息（用於調試）
+			if !loggedButtons && checkCount <= 3 && selectorIdx < 3 {
+				log.Infoln("[答題] 調試：選擇器[", selectorIdx, "] ", selector, " 找到 ", len(btns), " 個按鈕")
 				for i, btn := range btns {
 					text, _ := btn.TextContent()
 					text = strings.TrimSpace(text)
 					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 					disabled, _ := isDisabled.(bool)
 					log.Infoln("[答題] 調試：按鈕[", i, "] 文本='", text, "' 禁用=", disabled)
+				}
+				if selectorIdx == 2 {
+					loggedButtons = true
 				}
 			}
 
