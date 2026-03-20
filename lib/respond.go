@@ -71,6 +71,41 @@ func humanPause(minMs int, maxMs int) {
 	time.Sleep(randomDurationBetween(minMs, maxMs))
 }
 
+// simulateHumanBehavior 模擬人類在頁面上的自然行為（鼠標移動、滾動等）
+func simulateHumanBehavior(page playwright.Page) {
+	// 隨機頁面滾動
+	scrollDirection := rand.Intn(3)
+	scrollAmount := rand.Intn(150) + 50
+	var scrollY int
+	switch scrollDirection {
+	case 0: // 向下滾動
+		scrollY = scrollAmount
+	case 1: // 向上滾動
+		scrollY = -scrollAmount
+	default: // 不滾動
+		scrollY = 0
+	}
+	if scrollY != 0 {
+		_, _ = page.Evaluate(fmt.Sprintf(`() => window.scrollBy(0, %d)`, scrollY))
+		humanPause(300, 800)
+	}
+
+	// 隨機鼠標移動到頁面不同位置
+	mouseX := rand.Intn(800) + 100
+	mouseY := rand.Intn(500) + 100
+	_, _ = page.Evaluate(fmt.Sprintf(`() => {
+		const event = new MouseEvent('mousemove', {
+			bubbles: true,
+			cancelable: true,
+			clientX: %d,
+			clientY: %d
+		});
+		document.dispatchEvent(event);
+	}`, mouseX, mouseY))
+
+	humanPause(200, 500)
+}
+
 func hasVisibleSelector(page playwright.Page, selectors []string) bool {
 	for _, selector := range selectors {
 		handle, err := page.QuerySelector(selector)
@@ -1430,8 +1465,11 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	}
 	log.Debugln("获取到", len(radios), "个按钮")
 
-	// 在開始選擇前，模擬閱讀題目的時間
-	humanPause(1500, 3000)
+	// 模擬閱讀題目的時間（大幅增加：5-10秒）
+	humanPause(5000, 10000)
+
+	// 模擬人類行為（隨機滾動和鼠標移動）
+	simulateHumanBehavior(page)
 
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
@@ -1447,12 +1485,17 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			log.Errorln("点击选项出现错误" + err.Error())
 			return err
 		}
-		// 增加選項之間的延遲，模擬人類思考
-		humanPause(800, 1800)
+		// 大幅增加選項之間的延遲（2-4秒）
+		humanPause(2000, 4000)
+		// 每次選擇後模擬人類行為
+		simulateHumanBehavior(page)
 	}
 
-	// 選擇完成後，模擬確認答案的思考時間（更長延遲）
-	humanPause(3000, 6000)
+	// 選擇完成後，模擬確認答案的思考時間（大幅增加：8-15秒）
+	humanPause(8000, 15000)
+
+	// 提交前再次模擬人類行為
+	simulateHumanBehavior(page)
 
 	return checkNextBotton(page, questionText)
 }
@@ -1614,15 +1657,42 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 		Timeout: playwright.Float(5000),
 	})
 
-	// 模擬鼠標移動到元素上（更自然的點擊行為）
-	_ = handle.Hover(playwright.ElementHandleHoverOptions{
-		Timeout: playwright.Float(3000),
-	})
+	// 獲取元素位置，模擬鼠標移動軌跡
+	box, err := handle.BoundingBox()
+	if err == nil && box != nil {
+		// 先移動到元素附近（不是直接到元素上）
+		randomOffsetX := float64(rand.Intn(100) - 50) // -50 到 50 的隨機偏移
+		randomOffsetY := float64(rand.Intn(80) - 40)
+		_ = handle.Hover(playwright.ElementHandleHoverOptions{
+			Timeout: playwright.Float(3000),
+			Position: &playwright.Position{
+				X: box.Width/2 + randomOffsetX,
+				Y: box.Height/2 + randomOffsetY,
+			},
+		})
 
-	// 添加小延遲，模擬人類點擊前的短暫停頓
-	humanPause(100, 300)
+		// 短暫停頓，模擬猶豫
+		humanPause(300, 800)
 
-	err := handle.Click(playwright.ElementHandleClickOptions{
+		// 再移動到元素中心
+		_ = handle.Hover(playwright.ElementHandleHoverOptions{
+			Timeout: playwright.Float(3000),
+			Position: &playwright.Position{
+				X: box.Width / 2,
+				Y: box.Height / 2,
+			},
+		})
+	} else {
+		// 備用方案：直接 Hover
+		_ = handle.Hover(playwright.ElementHandleHoverOptions{
+			Timeout: playwright.Float(3000),
+		})
+	}
+
+	// 添加點擊前的停頓（模擬思考）
+	humanPause(500, 1200)
+
+	err = handle.Click(playwright.ElementHandleClickOptions{
 		Timeout: playwright.Float(10000),
 	})
 	if err == nil {
@@ -3012,6 +3082,10 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		}
 		btnText, _ := btn.TextContent()
 		btnText = strings.TrimSpace(btnText)
+
+		// 在點擊確定/提交前，額外增加延遲（模擬最後確認）
+		humanPause(2000, 5000)
+		simulateHumanBehavior(page)
 
 		if err := clickAnswerActionHandle(btn); err != nil {
 			lastErr = err
