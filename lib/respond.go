@@ -498,41 +498,119 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 		};
 
 		// ===== 阿里雲驗證碼 2.0（新版 aliyunCaptcha）=====
-		// 軌道 = JS_aliyun-captcha-slider_bind_element（大容器）
-		// 拖拽按鈕 = aliyunCaptcha-sliding-slider（小方塊）
-		const v2Track = document.querySelector("#JS_aliyun-captcha-slider_bind_element, .JS_aliyun-captcha-slider_bind_element");
-		const v2Handle = document.querySelector("#aliyunCaptcha-sliding-slider, .aliyunCaptcha-sliding-slider");
+		// 先 dump 完整的滑塊 DOM 樹結構
+		const v2Bind = document.querySelector("#JS_aliyun-captcha-slider_bind_element, .JS_aliyun-captcha-slider_bind_element");
+		if (v2Bind && isVisible(v2Bind)) {
+			// 遍歷所有子孫元素，找到真正的拖拽手柄和軌道
+			const dumpChildren = (el, depth) => {
+				const info = [];
+				for (const child of el.children) {
+					const r = child.getBoundingClientRect();
+					const cls = (typeof child.className === 'string') ? child.className : '';
+					const id = child.id || '';
+					info.push({
+						tag: child.tagName, id, cls: cls.substring(0, 80),
+						w: Math.round(r.width), h: Math.round(r.height),
+						l: Math.round(r.left), t: Math.round(r.top),
+						kids: child.children.length
+					});
+					if (depth < 3 && child.children.length > 0) {
+						info.push(...dumpChildren(child, depth + 1));
+					}
+				}
+				return info;
+			};
 
-		if (v2Track && isVisible(v2Track) && v2Handle && isVisible(v2Handle)) {
-			const trackRect = v2Track.getBoundingClientRect();
-			const handleRect = v2Handle.getBoundingClientRect();
-			console.log("[滑塊調試] 阿里雲 2.0: 軌道 width=" + trackRect.width + " 按鈕 width=" + handleRect.width + " left=" + handleRect.left);
-			const startX = handleRect.left + handleRect.width / 2;
-			const startY = handleRect.top + handleRect.height / 2;
-			const endX = trackRect.left + trackRect.width - handleRect.width / 2 - 5;
-			console.log("[滑塊調試] 2.0 位置: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ") 距離=" + (endX - startX));
-			return { ok: true, startX, startY, endX, endY: startY };
-		}
+			const bindRect = v2Bind.getBoundingClientRect();
+			console.log("[滑塊調試] bind_element: w=" + Math.round(bindRect.width) + " h=" + Math.round(bindRect.height) + " l=" + Math.round(bindRect.left));
 
-		// 只找到軌道沒找到按鈕，從軌道左端拖到右端
-		if (v2Track && isVisible(v2Track)) {
-			const trackRect = v2Track.getBoundingClientRect();
-			console.log("[滑塊調試] 2.0 只找到軌道: width=" + trackRect.width);
-			const startX = trackRect.left + 20;
-			const startY = trackRect.top + trackRect.height / 2;
-			const endX = trackRect.left + trackRect.width - 10;
-			console.log("[滑塊調試] 2.0 軌道模式: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ") 距離=" + (endX - startX));
-			return { ok: true, startX, startY, endX, endY: startY };
-		}
+			const dump = dumpChildren(v2Bind, 0);
+			for (const d of dump.slice(0, 30)) {
+				console.log("[滑塊DOM] " + d.tag + " id=" + d.id + " cls=" + d.cls + " " + d.w + "x" + d.h + " @(" + d.l + "," + d.t + ") kids=" + d.kids);
+			}
 
-		// 只找到按鈕沒找到軌道，用固定距離
-		if (v2Handle && isVisible(v2Handle)) {
-			const handleRect = v2Handle.getBoundingClientRect();
-			console.log("[滑塊調試] 2.0 只找到按鈕: width=" + handleRect.width);
-			const startX = handleRect.left + handleRect.width / 2;
-			const startY = handleRect.top + handleRect.height / 2;
-			const endX = startX + 280;
-			console.log("[滑塊調試] 2.0 按鈕+固定距離: 起點(" + startX + "," + startY + ") 終點(" + endX + "," + startY + ")");
+			// 策略：在 bind_element 內找最窄的可見元素作為拖拽手柄（>> 箭頭）
+			// 軌道就是 bind_element 本身
+			let handleEl = null;
+			let handleRect = null;
+
+			// 方法1：找 class 含 slider/btn/handle/icon 的子元素
+			const handleCandidates = v2Bind.querySelectorAll("[class*='slider-btn'], [class*='slider-icon'], [class*='slide-btn'], [class*='icon'], [class*='handle']");
+			for (const el of handleCandidates) {
+				if (isVisible(el)) {
+					const r = el.getBoundingClientRect();
+					if (r.width > 0 && r.width < bindRect.width * 0.3) {
+						handleEl = el;
+						handleRect = r;
+						console.log("[滑塊調試] 方法1找到手柄: cls=" + el.className + " w=" + Math.round(r.width));
+						break;
+					}
+				}
+			}
+
+			// 方法2：找 aliyunCaptcha-sliding-slider 的子元素
+			if (!handleEl) {
+				const slidingSlider = v2Bind.querySelector("#aliyunCaptcha-sliding-slider, .aliyunCaptcha-sliding-slider");
+				if (slidingSlider && isVisible(slidingSlider)) {
+					// 看 slidingSlider 是手柄還是軌道 — 如果寬度 < bind 的一半就是手柄
+					const ssRect = slidingSlider.getBoundingClientRect();
+					if (ssRect.width < bindRect.width * 0.5) {
+						handleEl = slidingSlider;
+						handleRect = ssRect;
+						console.log("[滑塊調試] 方法2: slidingSlider 是手柄 w=" + Math.round(ssRect.width));
+					} else {
+						// slidingSlider 是軌道，找其內部最左邊最小的子元素
+						console.log("[滑塊調試] 方法2: slidingSlider 是軌道 w=" + Math.round(ssRect.width) + " 繼續找子元素");
+						for (const child of slidingSlider.querySelectorAll("*")) {
+							if (isVisible(child)) {
+								const cr = child.getBoundingClientRect();
+								if (cr.width > 5 && cr.width < ssRect.width * 0.3 && cr.left < ssRect.left + ssRect.width * 0.3) {
+									handleEl = child;
+									handleRect = cr;
+									console.log("[滑塊調試] 方法2b: 找到軌道內手柄 tag=" + child.tagName + " cls=" + child.className + " w=" + Math.round(cr.width));
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// 方法3：暴力搜索 — bind_element 內最左最窄的可見子元素
+			if (!handleEl) {
+				let bestEl = null;
+				let bestLeft = Infinity;
+				for (const child of v2Bind.querySelectorAll("*")) {
+					if (!isVisible(child)) continue;
+					const cr = child.getBoundingClientRect();
+					if (cr.width > 5 && cr.width < bindRect.width * 0.25 && cr.height > 10) {
+						if (cr.left < bestLeft) {
+							bestLeft = cr.left;
+							bestEl = child;
+						}
+					}
+				}
+				if (bestEl) {
+					handleEl = bestEl;
+					handleRect = bestEl.getBoundingClientRect();
+					console.log("[滑塊調試] 方法3暴力: tag=" + bestEl.tagName + " cls=" + bestEl.className + " w=" + Math.round(handleRect.width) + " l=" + Math.round(handleRect.left));
+				}
+			}
+
+			if (handleEl && handleRect) {
+				const startX = handleRect.left + handleRect.width / 2;
+				const startY = handleRect.top + handleRect.height / 2;
+				const endX = bindRect.left + bindRect.width - handleRect.width / 2 - 5;
+				console.log("[滑塊調試] 最終: 起點(" + Math.round(startX) + "," + Math.round(startY) + ") 終點(" + Math.round(endX) + "," + Math.round(startY) + ") 距離=" + Math.round(endX - startX));
+				return { ok: true, startX, startY, endX, endY: startY };
+			}
+
+			// 所有方法都失敗，從 bind_element 左端拖到右端
+			console.log("[滑塊調試] 所有方法均未找到手柄，使用 bind_element 左端");
+			const startX = bindRect.left + 25;
+			const startY = bindRect.top + bindRect.height / 2;
+			const endX = bindRect.left + bindRect.width - 10;
+			console.log("[滑塊調試] 備用: 起點(" + Math.round(startX) + "," + Math.round(startY) + ") 終點(" + Math.round(endX) + "," + Math.round(startY) + ") 距離=" + Math.round(endX - startX));
 			return { ok: true, startX, startY, endX, endY: startY };
 		}
 
