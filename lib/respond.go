@@ -2889,21 +2889,19 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			}
 		}
 
-		// 每2次檢測打印一次狀態
-		if checkCount%2 == 0 {
+		// 每3次檢測打印一次狀態，並檢查「確定」按鈕狀態
+		if checkCount%3 == 0 {
 			log.Debugln("[答題] 等待系統判斷中... (檢測次數:", checkCount, ")")
-			// 檢查「確定」按鈕是否仍然存在（表示點擊沒有生效）
-			confirmBtns, _ := page.QuerySelectorAll(`button`)
+			// 檢查「確定」按鈕是否變為非禁用狀態（表示判斷完成但按鈕文本沒變）
+			confirmBtns, _ := page.QuerySelectorAll(`#app .action-row > button`)
 			for _, btn := range confirmBtns {
 				text, _ := btn.TextContent()
 				text = strings.TrimSpace(text)
 				if text == "确定" || text == "確定" {
 					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 					disabled, _ := isDisabled.(bool)
-					log.Infoln("[答題] 調試：發現「確定」按鈕仍然存在，禁用狀態=", disabled)
-					// 如果確定按鈕仍然可點擊，可能需要重新點擊
 					if !disabled {
-						log.Warningln("[答題] 「確定」按鈕仍然可點擊，嘗試重新點擊")
+						log.Warningln("[答題] 「確定」按鈕已恢復可點擊狀態，嘗試重新點擊 (檢測次數:", checkCount, ")")
 						btn.Click()
 						humanPause(500, 1000)
 					}
@@ -2971,8 +2969,8 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			return ErrAnswerSliderChallenge
 		}
 
-		// 等待系統判斷完成（最多等待12秒）
-		if !waitForSystemJudgment(page, 12*time.Second) {
+		// 等待系統判斷完成（最多等待20秒）
+		if !waitForSystemJudgment(page, 20*time.Second) {
 			// 可能是滑塊或其他問題
 			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
