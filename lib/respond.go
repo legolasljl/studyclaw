@@ -2871,7 +2871,8 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 				}
 				// 檢查按鈕是否可點擊（不是灰色/禁用狀態）
 				isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-				if disabled, ok := isDisabled.(bool); ok && !disabled {
+				disabled, _ := isDisabled.(bool)
+				if !disabled {
 					// 額外檢查：按鈕是否可見且可交互
 					isVisible, _ := btn.Evaluate(`el => {
 						const rect = el.getBoundingClientRect();
@@ -2882,10 +2883,15 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 							rect.height > 0 &&
 							!el.hasAttribute('disabled');
 					}`)
-					if visible, ok := isVisible.(bool); ok && visible {
+					visible, _ := isVisible.(bool)
+					if visible {
 						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊 (檢測次數:", checkCount, ")")
 						return true
+					} else {
+						log.Debugln("[答題] 按鈕「", text, "」未通過可見性檢查")
 					}
+				} else {
+					log.Debugln("[答題] 按鈕「", text, "」被禁用")
 				}
 			}
 		}
