@@ -2791,12 +2791,19 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	nextButtonSelectors := []string{
 		`#app .action-row > button`,
+		`#app .action-row [role="button"]`,
+		`#app .action-row > div`,
 		`.action-row button`,
+		`.action-row [role="button"]`,
 		`button.ant-btn`,
+		`.ant-btn`,
+		`button[class*="submit"]`,
+		`button[class*="next"]`,
 		`button`,
 	}
 	nextKeywords := []string{"下一题", "继续答题", "完成"}
 	checkCount := 0
+	loggedButtons := false
 
 	for time.Now().Before(deadline) {
 		checkCount++
@@ -2819,6 +2826,20 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			if err != nil || len(btns) == 0 {
 				continue
 			}
+
+			// 第一次檢測時，打印所有按鈕信息（用於調試）
+			if !loggedButtons && checkCount <= 2 {
+				loggedButtons = true
+				log.Infoln("[答題] 調試：頁面按鈕信息 (選擇器:", selector, ", 數量:", len(btns), ")")
+				for i, btn := range btns {
+					text, _ := btn.TextContent()
+					text = strings.TrimSpace(text)
+					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+					disabled, _ := isDisabled.(bool)
+					log.Infoln("[答題] 調試：按鈕[", i, "] 文本='", text, "' 禁用=", disabled)
+				}
+			}
+
 			for _, btn := range btns {
 				text, _ := btn.TextContent()
 				text = strings.TrimSpace(strings.ReplaceAll(text, " ", ""))
@@ -2857,6 +2878,24 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 		// 每2次檢測打印一次狀態
 		if checkCount%2 == 0 {
 			log.Debugln("[答題] 等待系統判斷中... (檢測次數:", checkCount, ")")
+			// 檢查「確定」按鈕是否仍然存在（表示點擊沒有生效）
+			confirmBtns, _ := page.QuerySelectorAll(`button`)
+			for _, btn := range confirmBtns {
+				text, _ := btn.TextContent()
+				text = strings.TrimSpace(text)
+				if text == "确定" || text == "確定" {
+					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+					disabled, _ := isDisabled.(bool)
+					log.Infoln("[答題] 調試：發現「確定」按鈕仍然存在，禁用狀態=", disabled)
+					// 如果確定按鈕仍然可點擊，可能需要重新點擊
+					if !disabled {
+						log.Warningln("[答題] 「確定」按鈕仍然可點擊，嘗試重新點擊")
+						btn.Click()
+						humanPause(500, 1000)
+					}
+					break
+				}
+			}
 		}
 
 		humanPause(500, 1000)
@@ -2918,8 +2957,8 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			return ErrAnswerSliderChallenge
 		}
 
-		// 等待系統判斷完成（最多等待8秒）
-		if !waitForSystemJudgment(page, 8*time.Second) {
+		// 等待系統判斷完成（最多等待12秒）
+		if !waitForSystemJudgment(page, 12*time.Second) {
 			// 可能是滑塊或其他問題
 			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
