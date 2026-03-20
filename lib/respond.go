@@ -237,21 +237,36 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 	}
 
 	log.Infoln("[答題] 檢測到滑塊驗證，嘗試自動滑動...")
-	if err := solveAnswerSlider(page); err != nil {
-		log.Warningln("[答題] 自動滑動失敗：", err.Error())
-	} else {
-		// 自動滑動後檢查是否通過
-		humanPause(1500, 2500)
+
+	// 先等待滑塊元素穩定
+	humanPause(500, 1000)
+
+	// 嘗試多次滑動
+	maxAttempts := 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		log.Infoln("[答題] 滑塊驗證嘗試第", attempt, "次...")
+
+		if err := solveAnswerSlider(page); err != nil {
+			log.Warningln("[答題] 自動滑動失敗（嘗試", attempt, "）：", err.Error())
+			// 等待後重試
+			humanPause(1000, 2000)
+			continue
+		}
+
+		// 滑動後等待結果
+		humanPause(2000, 3500)
+
+		if !hasAnswerSliderPrompt(page) {
+			log.Infoln("[答題] 自動滑動成功，滑塊驗證已通過")
+			authChecker.Reset()
+			humanPause(800, 1500)
+			return true
+		}
+
+		log.Warningln("[答題] 滑塊驗證未通過（嘗試", attempt, "），繼續重試...")
 	}
 
-	if !hasAnswerSliderPrompt(page) {
-		log.Infoln("[答題] 自動滑動成功，滑塊驗證已通過")
-		authChecker.Reset()
-		humanPause(800, 1500)
-		return true
-	}
-
-	log.Warningln("[答題] 自動滑塊未通過，等待手動驗證 (90秒)...")
+	log.Warningln("[答題] 多次自動滑動未通過，等待手動驗證 (90秒)...")
 	if waitForAnswerSliderDismiss(page, 90*time.Second) {
 		log.Infoln("[答題] 手動滑塊驗證已通過")
 		authChecker.Reset()
@@ -580,8 +595,13 @@ func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX
 func solveAnswerSlider(page playwright.Page) error {
 	startX, startY, endX, endY, err := getAnswerSliderPosition(page)
 	if err != nil {
+		log.Errorln("[答題] 獲取滑塊位置失敗：", err.Error())
 		return err
 	}
+
+	log.Infoln("[答題] 滑塊位置：起點(", startX, ",", startY, ") 終點(", endX, ",", endY, ")")
+	log.Infoln("[答題] 開始拖動滑塊...")
+
 	dragAnswerSlider(page, startX, startY, endX, endY)
 	humanPause(1500, 3000)
 	return nil
