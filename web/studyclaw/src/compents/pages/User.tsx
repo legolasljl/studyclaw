@@ -72,6 +72,10 @@ class Users extends Component<any, any> {
     });
   }
 
+  componentWillUnmount() {
+    document.body.style.overflow = "";
+  }
+
   formatTimestamp = (value: number) => {
     const date = new Date(value * 1000);
     return `${date.getFullYear()}年${`${date.getMonth() + 1}`.padStart(2, "0")}月${`${date.getDate()}`.padStart(2, "0")}日 ${`${date.getHours()}`.padStart(2, "0")}:${`${date.getMinutes()}`.padStart(2, "0")}:${`${date.getSeconds()}`.padStart(2, "0")}`;
@@ -184,17 +188,21 @@ class Users extends Component<any, any> {
   };
 
   deleteUserRecord = (uid: string, nick: string) => {
-    Dialog.confirm({ content: `確定刪除用戶 ${nick} 嗎？` }).then(async (confirmed: boolean) => {
-      if (!confirmed) {
-        return;
-      }
-
-      const resp = await deleteUser(uid);
-      if (!resp.success) {
-        Dialog.show({ content: resp.error || "刪除失敗", closeOnMaskClick: true, closeOnAction: true });
-        return;
-      }
-      await this.fetchUserData();
+    Dialog.confirm({
+      content: `確定刪除用戶 ${nick} 嗎？`,
+      onConfirm: async () => {
+        try {
+          const resp = await deleteUser(uid);
+          if (!resp || !resp.success) {
+            Dialog.alert({ content: (resp && resp.error) || "刪除失敗" });
+            return;
+          }
+          Toast.show("已刪除用戶");
+          await this.fetchUserData();
+        } catch {
+          Dialog.alert({ content: "刪除失敗，請稍後重試。" });
+        }
+      },
     });
   };
 
