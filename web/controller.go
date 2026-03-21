@@ -331,10 +331,21 @@ func stopStudy() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		uid := ctx.Query("uid")
 		core := state.Get(uid)
+		if core == nil {
+			ctx.JSON(400, Resp{
+				Code:    400,
+				Message: "該用戶未在學習中",
+				Data:    "",
+				Success: false,
+				Error:   "user not studying",
+			})
+			return
+		}
 		core.Quit()
+		state.Delete(uid)
 		ctx.JSON(200, Resp{
 			Code:    200,
-			Message: "",
+			Message: "已停止學習",
 			Data:    "",
 			Success: true,
 			Error:   "",

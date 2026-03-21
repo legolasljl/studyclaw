@@ -24,7 +24,10 @@ func Delete(uid string) {
 }
 
 func Get(uid string) *lib.Core {
-	value, _ := state.Load(uid)
+	value, ok := state.Load(uid)
+	if !ok {
+		return nil
+	}
 	return value.(*lib.Core)
 }
 
