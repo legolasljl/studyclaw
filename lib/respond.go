@@ -181,29 +181,20 @@ func hasAnswerSliderPrompt(page playwright.Page) bool {
 // detectAndLogSliderElements 檢測並打印頁面上所有可能的滑塊元素（用於調試）
 func detectAndLogSliderElements(page playwright.Page) {
 	result, _ := page.Evaluate(`() => {
-		const sliderKeywords = ['slider', 'drag', 'slide', 'captcha', 'nc_', '滑块', '验证'];
-		const allElements = document.querySelectorAll('*');
+		const targetSelector = '[id*="captcha"], [id*="slider"], [id*="nc_"], [id*="drag"], [id*="slide"], [class*="captcha"], [class*="slider"], [class*="nc_"], [class*="slide"], [class*="drag"]';
+		const elements = document.querySelectorAll(targetSelector);
 		const found = [];
-		for (const el of allElements) {
-			const className = (el.className || '').toString().toLowerCase();
-			const id = (el.id || '').toString().toLowerCase();
-			const text = (el.innerText || el.textContent || '').toString().trim();
-			for (const keyword of sliderKeywords) {
-				if (className.includes(keyword) || id.includes(keyword) ||
-				    (text.length < 50 && text.includes(keyword))) {
-					const rect = el.getBoundingClientRect();
-					if (rect.width > 0 && rect.height > 0) {
-						found.push({
-							tag: el.tagName,
-							className: el.className,
-							id: el.id,
-							text: text.substring(0, 30),
-							width: rect.width,
-							height: rect.height
-						});
-						break;
-					}
-				}
+		for (const el of elements) {
+			const rect = el.getBoundingClientRect();
+			if (rect.width > 0 && rect.height > 0) {
+				found.push({
+					tag: el.tagName,
+					className: (el.className || '').toString(),
+					id: el.id || '',
+					text: (el.innerText || el.textContent || '').toString().trim().substring(0, 30),
+					width: rect.width,
+					height: rect.height
+				});
 			}
 		}
 		return found.slice(0, 20);
@@ -666,18 +657,14 @@ func findSliderInDocument(page playwright.Page) (interface{}, error) {
 		}
 
 		// ===== 都沒找到，輸出調試信息 =====
+		const debugSelector = '[id*="nc"], [id*="slide"], [id*="captcha"], [id*="aliyun"], [class*="nc"], [class*="slide"], [class*="captcha"], [class*="aliyun"], [class*="btn"]';
 		const allEls = [];
-		for (const el of document.querySelectorAll('*')) {
-			if (el.id || el.className) {
-				const r = el.getBoundingClientRect();
-				if (r.width > 0 && r.height > 0) {
-					const id = el.id || '';
-					const cls = (typeof el.className === 'string') ? el.className : '';
-					if (id.includes('nc') || id.includes('slide') || id.includes('captcha') || id.includes('aliyun') ||
-					    cls.includes('nc') || cls.includes('slide') || cls.includes('captcha') || cls.includes('aliyun') || cls.includes('btn')) {
-						allEls.push(el.tagName + '#' + id + '.' + cls.substring(0, 80));
-					}
-				}
+		for (const el of document.querySelectorAll(debugSelector)) {
+			const r = el.getBoundingClientRect();
+			if (r.width > 0 && r.height > 0) {
+				const id = el.id || '';
+				const cls = (typeof el.className === 'string') ? el.className : '';
+				allEls.push(el.tagName + '#' + id + '.' + cls.substring(0, 80));
 			}
 		}
 		return { ok: false, reason: "未找到滑塊按鈕", debugElements: allEls.slice(0, 20).join(' | ') };
@@ -1509,7 +1496,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 
 			log.Debugln("开始尝试获取打开提示信息按钮")
 			// 点击提示的按钮
-			err = openTips.Click()
+			err = humanClick(openTips)
 			if err != nil {
 				log.Errorln("点击打开提示信息按钮失败" + err.Error())
 				tryCount++
@@ -1543,7 +1530,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			log.Debugln("已获取网页内容")
 
 			// 关闭提示信息
-			err = openTips.Click()
+			err = humanClick(openTips)
 			if err != nil {
 				log.Errorln("点击关闭提示信息按钮失败" + err.Error())
 				// 关闭失败不影响继续答题，尝试继续
@@ -1787,7 +1774,7 @@ func GetAnswerPage(page playwright.Page, model string) bool {
 	}
 	for i := 1; i <= len(selectPages); i++ {
 		log.Infoln("获取到"+modelName, "第", i, "页")
-		err1 := selectPages[i-1].Click()
+		err1 := humanClick(selectPages[i-1])
 		if err1 != nil {
 			log.Errorln("点击页码失败")
 		}
@@ -1819,15 +1806,18 @@ func GetAnswerPage(page playwright.Page, model string) bool {
 				}
 				data.WaitForElementState("stable", playwright.ElementHandleWaitForElementStateOptions{Timeout: playwright.Float(10000)})
 				humanPause(3000, 5200)
+				dblBox, _ := data.BoundingBox()
+				var dblPos *playwright.Position
+				if dblBox != nil && dblBox.Width > 1 && dblBox.Height > 1 {
+					dblPos = &playwright.Position{
+						X: dblBox.Width*0.2 + float64(rand2.Intn(int(dblBox.Width*0.6)+1)),
+						Y: dblBox.Height*0.2 + float64(rand2.Intn(int(dblBox.Height*0.6)+1)),
+					}
+				}
 				err = data.Click(playwright.ElementHandleClickOptions{
-					Button:      nil,
-					ClickCount:  playwright.Int(2),
-					Delay:       nil,
-					Force:       nil,
-					Modifiers:   nil,
-					NoWaitAfter: nil,
-					Position:    nil,
-					Timeout:     playwright.Float(100000),
+					ClickCount: playwright.Int(2),
+					Position:   dblPos,
+					Timeout:    playwright.Float(100000),
 				})
 				if err != nil {
 					log.Errorln("点击按钮失败" + err.Error())
@@ -1876,7 +1866,7 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 		}
 		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
 			// 找到匹配的答案，點擊
-			if err := radio.Click(); err == nil {
+			if err := humanClick(radio); err == nil {
 				log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent))
 				found = true
 				break
@@ -1886,7 +1876,7 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 
 	// 如果沒找到匹配的答案，隨機選擇第一個選項
 	if !found {
-		if err := radios[0].Click(); err == nil {
+		if err := humanClick(radios[0]); err == nil {
 			text, _ := radios[0].TextContent()
 			log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
 		}
@@ -2042,6 +2032,19 @@ func pickAnswerActionButton(handles []playwright.ElementHandle, keywords []strin
 		}
 	}
 	return nil
+}
+
+// humanClick 在元素 BoundingBox 內隨機偏移 ±30% 範圍點擊，模擬真人點擊位置不精確
+func humanClick(el playwright.ElementHandle) error {
+	box, err := el.BoundingBox()
+	if err != nil || box == nil || box.Width < 1 || box.Height < 1 {
+		return el.Click()
+	}
+	offsetX := box.Width*0.2 + float64(rand2.Intn(int(box.Width*0.6)+1))
+	offsetY := box.Height*0.2 + float64(rand2.Intn(int(box.Height*0.6)+1))
+	return el.Click(playwright.ElementHandleClickOptions{
+		Position: &playwright.Position{X: offsetX, Y: offsetY},
+	})
 }
 
 func clickAnswerActionHandle(handle playwright.ElementHandle) error {
@@ -3425,7 +3428,7 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 					// 如果按鈕變為可用，嘗試重新點擊
 					if !disabled {
 						log.Warningln("[答題] 「確定」按鈕已恢復可點擊狀態，嘗試重新點擊 (檢測次數:", checkCount, ")")
-						btn.Click()
+						humanClick(btn)
 						humanPause(500, 1000)
 					}
 
@@ -3508,7 +3511,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 快速確認
 		humanPause(200, 500)
 
-		if err := btn.Click(); err != nil {
+		if err := humanClick(btn); err != nil {
 			lastErr = err
 			continue
 		}

@@ -150,72 +150,7 @@ func (t *Telegram) Init() error {
 		return fmt.Errorf("telegram token鉴权失败或代理使用失败: %w", err)
 	}
 
-	updateConfig := tgbotapi.NewUpdate(0)
-	updateConfig.Timeout = 60
-	channel := t.bot.GetUpdatesChan(updateConfig)
-	go func() {
-		defer func() {
-			err := recover()
-			if err != nil {
-				log.Errorln("处理tg消息时发生异常，请尝试重启程序")
-				log.Errorln(err)
-			}
-		}()
-		for {
-			update, ok := <-channel
-			if !ok {
-				log.Errorln("Telegram 更新通道已关闭")
-				return
-			}
-			if update.Message == nil {
-				if update.CallbackQuery != nil {
-					update.Message = update.CallbackQuery.Message
-					update.Message.Text = update.CallbackQuery.Data
-					t.bot.Send(tgbotapi.NewDeleteMessage(update.Message.Chat.ID, update.CallbackQuery.Message.MessageID))
-				} else {
-					data, _ := json.Marshal(update)
-					log.Infoln(string(data))
-					continue
-				}
-			}
-			if update.Message == nil {
-				continue
-			}
-
-			if update.Message.Chat.Type == "group" || update.Message.Chat.Type == "supergroup" {
-				update.Message.Text = strings.ReplaceAll(update.Message.Text, "@"+t.bot.Self.UserName, "")
-			}
-			log.Infoln(fmt.Sprintf("收到tg消息,来自%v,内容 ==》 %v", update.Message.Chat.ID, update.Message.Text))
-			if len(conf.GetConfig().TG.WhiteList) > 0 {
-				inWhiteList := false
-				for _, id := range conf.GetConfig().TG.WhiteList {
-					if id == update.Message.Chat.ID {
-						inWhiteList = true
-						break
-					}
-				}
-				if !inWhiteList {
-					log.Warningln("已过滤非白名单的消息,若需允许用户使用，请将user_id添加到配置文件white_list中")
-					continue
-				}
-			}
-			handles.Range(func(key, value interface{}) bool {
-				if strings.Split(update.Message.Text, " ")[0] == key.(string) {
-					go func() {
-						defer func() {
-							err := recover()
-							if err != nil {
-								log.Errorln(err)
-								log.Errorln("handle执行出现了不可挽回的错误")
-							}
-						}()
-						(value.(func(bot *Telegram, from int64, args []string)))(t, update.Message.Chat.ID, strings.Split(update.Message.Text, " ")[1:])
-					}()
-				}
-				return true
-			})
-		}
-	}()
+	go t.listenForUpdates()
 
 	_, err = t.bot.Request(tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "start", Description: "查看机器人状态"},
@@ -236,6 +171,108 @@ func (t *Telegram) Init() error {
 		return fmt.Errorf("设置 Telegram 命令失败: %w", err)
 	}
 	return nil
+}
+
+const (
+	tgReconnectBaseDelay = 5 * time.Second
+	tgReconnectMaxDelay  = 5 * time.Minute
+	tgMaxReconnectFails  = 50
+)
+
+func (t *Telegram) listenForUpdates() {
+	backoff := tgReconnectBaseDelay
+	consecutiveFails := 0
+
+	for {
+		updateConfig := tgbotapi.NewUpdate(0)
+		updateConfig.Timeout = 60
+		channel := t.bot.GetUpdatesChan(updateConfig)
+
+		log.Infoln("[Telegram] 開始監聽更新通道")
+		consecutiveFails = 0
+		backoff = tgReconnectBaseDelay
+
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Errorf("[Telegram] 處理消息時發生 panic: %v", r)
+				}
+			}()
+			for update := range channel {
+				t.handleUpdate(update)
+			}
+		}()
+
+		// channel 關閉，嘗試重連
+		consecutiveFails++
+		if consecutiveFails >= tgMaxReconnectFails {
+			log.Errorln("[Telegram] 連續重連失敗次數過多，放棄重連")
+			return
+		}
+		log.Warningf("[Telegram] 更新通道已關閉，%v 後嘗試重連 (第 %d 次)", backoff, consecutiveFails)
+		time.Sleep(backoff)
+		if backoff < tgReconnectMaxDelay {
+			backoff = backoff * 2
+			if backoff > tgReconnectMaxDelay {
+				backoff = tgReconnectMaxDelay
+			}
+		}
+	}
+}
+
+func (t *Telegram) handleUpdate(update tgbotapi.Update) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("[Telegram] handle 執行 panic: %v", r)
+		}
+	}()
+
+	if update.Message == nil {
+		if update.CallbackQuery != nil {
+			update.Message = update.CallbackQuery.Message
+			update.Message.Text = update.CallbackQuery.Data
+			t.bot.Send(tgbotapi.NewDeleteMessage(update.Message.Chat.ID, update.CallbackQuery.Message.MessageID))
+		} else {
+			data, _ := json.Marshal(update)
+			log.Infoln(string(data))
+			return
+		}
+	}
+	if update.Message == nil {
+		return
+	}
+
+	if update.Message.Chat.Type == "group" || update.Message.Chat.Type == "supergroup" {
+		update.Message.Text = strings.ReplaceAll(update.Message.Text, "@"+t.bot.Self.UserName, "")
+	}
+	log.Infoln(fmt.Sprintf("收到tg消息,来自%v,内容 ==》 %v", update.Message.Chat.ID, update.Message.Text))
+	if len(conf.GetConfig().TG.WhiteList) > 0 {
+		inWhiteList := false
+		for _, id := range conf.GetConfig().TG.WhiteList {
+			if id == update.Message.Chat.ID {
+				inWhiteList = true
+				break
+			}
+		}
+		if !inWhiteList {
+			log.Warningln("已过滤非白名单的消息,若需允许用户使用，请将user_id添加到配置文件white_list中")
+			return
+		}
+	}
+	handles.Range(func(key, value interface{}) bool {
+		if strings.Split(update.Message.Text, " ")[0] == key.(string) {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Errorln(r)
+						log.Errorln("handle执行出现了不可挽回的错误")
+					}
+				}()
+				(value.(func(bot *Telegram, from int64, args []string)))(t, update.Message.Chat.ID, strings.Split(update.Message.Text, " ")[1:])
+			}()
+		}
+		return true
+	})
 }
 
 func (t *Telegram) SendPhoto(id int64, image []byte) {
@@ -380,7 +417,7 @@ func getAllUser(bot *Telegram, from int64, args []string) {
 	}
 	message := fmt.Sprintf("共获取到%v个有效用户信息\n", len(users))
 	for i, user := range users {
-		message += fmt.Sprintf("%v   %v", i, user.Nick)
+		message += fmt.Sprintf("%v   %v", i+1, user.Nick)
 		message += "\n"
 	}
 	bot.SendMsg(from, message)
@@ -474,11 +511,11 @@ func deleteUser(bot *Telegram, from int64, args []string) {
 		msgID := bot.SendMsg(from, "请选择删除的用户")
 		markup := tgbotapi.InlineKeyboardMarkup{}
 		for i, user := range users {
-			markup.InlineKeyboard = append(markup.InlineKeyboard, append([]tgbotapi.InlineKeyboardButton{}, tgbotapi.NewInlineKeyboardButtonData(user.Nick, "/delete "+strconv.Itoa(i))))
+			markup.InlineKeyboard = append(markup.InlineKeyboard, append([]tgbotapi.InlineKeyboardButton{}, tgbotapi.NewInlineKeyboardButtonData(user.Nick, "/delete "+strconv.Itoa(i+1))))
 		}
 
 		for i, user := range failUser {
-			markup.InlineKeyboard = append(markup.InlineKeyboard, append([]tgbotapi.InlineKeyboardButton{}, tgbotapi.NewInlineKeyboardButtonData(user.Nick+"  (已失效)", "/delete "+strconv.Itoa(len(users)+i))))
+			markup.InlineKeyboard = append(markup.InlineKeyboard, append([]tgbotapi.InlineKeyboardButton{}, tgbotapi.NewInlineKeyboardButtonData(user.Nick+"  (已失效)", "/delete "+strconv.Itoa(len(users)+i+1))))
 
 		}
 
@@ -495,8 +532,10 @@ func deleteUser(bot *Telegram, from int64, args []string) {
 			bot.SendMsg(from, err.Error())
 			return
 		}
-		if i >= len(users) {
-			bot.SendMsg(from, "错误的序号")
+		// 用戶序號從 1 開始
+		i = i - 1
+		if i < 0 || i >= len(users) {
+			bot.SendMsg(from, fmt.Sprintf("错误的序号，请输入 1 到 %d", len(users)))
 			return
 		}
 		err = model.DeleteUser(users[i].Uid)
@@ -530,12 +569,18 @@ func study(bot *Telegram, from int64, args []string) {
 				bot.SendMsg(from, err.Error())
 				return
 			}
+			// 用戶序號從 1 開始
+			i = i - 1
+			if i < 0 || i >= len(users) {
+				bot.SendMsg(from, fmt.Sprintf("用户序号无效，请输入 1 到 %d", len(users)))
+				return
+			}
 			user = users[i]
 		} else {
 			msgID := bot.SendMsg(from, "存在多名用户，未输入用户序号")
 			markup := tgbotapi.InlineKeyboardMarkup{}
 			for i, user := range users {
-				markup.InlineKeyboard = append(markup.InlineKeyboard, append([]tgbotapi.InlineKeyboardButton{}, tgbotapi.NewInlineKeyboardButtonData(user.Nick, "/study "+strconv.Itoa(i))))
+				markup.InlineKeyboard = append(markup.InlineKeyboard, append([]tgbotapi.InlineKeyboardButton{}, tgbotapi.NewInlineKeyboardButtonData(user.Nick, "/study "+strconv.Itoa(i+1))))
 			}
 
 			replyMarkup := tgbotapi.NewEditMessageReplyMarkup(from, msgID, markup)

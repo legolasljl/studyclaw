@@ -46,7 +46,7 @@ var (
 	configPath = ""
 )
 
-var VERSION = "v2024n1.1"
+var VERSION = "v2026n1.3"
 
 func init() {
 	if shouldRunInBackground() {

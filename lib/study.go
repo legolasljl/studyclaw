@@ -69,6 +69,7 @@ type studyMediaEvalTarget interface {
 type studyMediaState struct {
 	Status      string
 	CurrentTime float64
+	Duration    float64
 	ReadyState  int
 	Clicked     int
 	MediaCount  int
@@ -122,7 +123,10 @@ func buildStudyScrollScript(step int) string {
 			window.innerHeight || 0
 		);
 		const maxTop = Math.max(totalHeight - (window.innerHeight || 0), 0);
-		const targetTop = Math.min(maxTop, Math.floor(totalHeight / 120 * currentStep));
+		const baseTop = Math.min(maxTop, Math.floor(totalHeight / 120 * currentStep));
+		const jitter = Math.floor(Math.random() * 61) + 20;
+		const sign = Math.random() < 0.5 ? -1 : 1;
+		const targetTop = Math.max(0, Math.min(maxTop, baseTop + sign * jitter));
 		if (typeof window.scrollTo === "function") {
 			window.scrollTo(0, targetTop);
 		}
@@ -191,6 +195,20 @@ func scrollStudyPage(page studyPage, step int) error {
 	return err
 }
 
+// simulateStudyMouseDrift 在學習循環中偶爾模擬鼠標漂移，模擬真人閱讀時的游標移動
+func simulateStudyMouseDrift(page studyPage) {
+	if rand.Intn(3) != 0 {
+		return
+	}
+	mouseX := rand.Intn(800) + 100
+	mouseY := rand.Intn(500) + 100
+	_, _ = page.Evaluate(fmt.Sprintf(`() => {
+		document.dispatchEvent(new MouseEvent('mousemove', {
+			bubbles: true, cancelable: true, clientX: %d, clientY: %d
+		}));
+	}`, mouseX, mouseY))
+}
+
 func buildStudyMediaPlaybackScript(mediaKind string) string {
 	return fmt.Sprintf(`async () => {
 		const kind = %q;
@@ -211,19 +229,24 @@ func buildStudyMediaPlaybackScript(mediaKind string) string {
 		const roots = [];
 		const queue = [document];
 		const seen = new Set();
-		while (queue.length > 0) {
+		while (queue.length > 0 && roots.length < 20) {
 			const root = queue.shift();
 			if (!root || seen.has(root)) {
 				continue;
 			}
 			seen.add(root);
 			roots.push(root);
-			if (!root.querySelectorAll) {
+			if (!root.createTreeWalker && !root.querySelectorAll) {
 				continue;
 			}
-			for (const el of root.querySelectorAll("*")) {
-				if (el && el.shadowRoot && !seen.has(el.shadowRoot)) {
-					queue.push(el.shadowRoot);
+			const scanRoot = root.documentElement || root;
+			if (scanRoot.createTreeWalker) {
+				const walker = scanRoot.createTreeWalker(scanRoot, NodeFilter.SHOW_ELEMENT);
+				let node;
+				while ((node = walker.nextNode())) {
+					if (node.shadowRoot && !seen.has(node.shadowRoot)) {
+						queue.push(node.shadowRoot);
+					}
 				}
 			}
 		}
@@ -253,7 +276,10 @@ func buildStudyMediaPlaybackScript(mediaKind string) string {
 				for (const el of elements) {
 					if (!isVisible(el)) continue;
 					try {
-						el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+						const rect = el.getBoundingClientRect();
+						const cx = rect.width > 0 ? rect.left + rect.width * 0.2 + Math.random() * rect.width * 0.6 : 0;
+						const cy = rect.height > 0 ? rect.top + rect.height * 0.2 + Math.random() * rect.height * 0.6 : 0;
+						el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy }));
 						if (typeof el.click === "function") {
 							el.click();
 						}
@@ -299,6 +325,7 @@ func buildStudyMediaPlaybackScript(mediaKind string) string {
 			status: media.paused ? "paused" : "playing",
 			clicked,
 			currentTime: Number(media.currentTime || 0),
+			duration: Number(media.duration || 0),
 			readyState: Number(media.readyState || 0),
 			mediaCount: mediaList.length,
 			rootCount: roots.length,
@@ -350,6 +377,7 @@ func decodeStudyMediaState(result interface{}) studyMediaState {
 		state.Status = status
 	}
 	state.CurrentTime = floatFromEvalValue(payload["currentTime"])
+	state.Duration = floatFromEvalValue(payload["duration"])
 	state.ReadyState = intFromEvalValue(payload["readyState"])
 	state.Clicked = intFromEvalValue(payload["clicked"])
 	state.MediaCount = intFromEvalValue(payload["mediaCount"])
@@ -384,6 +412,34 @@ func collectStudyMediaTargets(page studyPage) []studyMediaEvalTarget {
 		targets = append(targets, frame)
 	}
 	return targets
+}
+
+// getStudyMediaDuration 嘗試獲取頁面上媒體的時長（秒），返回 0 表示無法獲取
+func getStudyMediaDuration(page studyPage) float64 {
+	result, err := page.Evaluate(`() => {
+		const media = document.querySelector("video, audio");
+		if (!media || !isFinite(media.duration)) return 0;
+		return media.duration;
+	}`)
+	if err != nil {
+		return 0
+	}
+	return floatFromEvalValue(result)
+}
+
+// computeMediaLearnTime 根據媒體時長計算學習時間
+// 規則：>= 60 秒的內容學習 70±10 秒即可得雙分；< 60 秒的內容需完整播放 + 小緩衝
+func computeMediaLearnTime(mediaDurationSec float64, fallbackSecs int, fallbackJitter int) int {
+	if mediaDurationSec <= 0 || mediaDurationSec != mediaDurationSec {
+		// 無法獲取時長，使用配置的預設值
+		return durationWithJitter(fallbackSecs, fallbackJitter)
+	}
+	if mediaDurationSec >= 60 {
+		// 長內容：70 秒 + 0~10 秒隨機抖動
+		return 70 + rand.Intn(11)
+	}
+	// 短內容：完整播放 + 5~15 秒緩衝
+	return int(mediaDurationSec) + 5 + rand.Intn(11)
 }
 
 func waitForStudyMediaPlayback(page studyPage, mediaKind string, attempts int, interval time.Duration) error {
@@ -803,6 +859,7 @@ func (c *Core) LearnArticle(user *model.User) {
 							log.Errorf("[文章学习] 页面滚动失败 title=%s step=%d err=%v", links[n].Title, i, err)
 						}
 					}
+					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
 				}
 				fmt.Println()
@@ -956,7 +1013,11 @@ func (c *Core) LearnVideo(user *model.User) {
 				humanPause(1800, 3200)
 				beforeVideoScore := score.Content["video"]
 				beforeVideoTimeScore := score.Content["video_time"]
-				learnTime := durationWithJitter(settings.VideoDurationSecs, settings.VideoDurationJitter)
+				mediaDuration := getStudyMediaDuration(page)
+				learnTime := computeMediaLearnTime(mediaDuration, settings.VideoDurationSecs, settings.VideoDurationJitter)
+				if mediaDuration > 0 {
+					log.Infof("[视频学习] 检测到媒体时长 %.0f 秒，计划学习 %d 秒", mediaDuration, learnTime)
+				}
 				for i := 0; i < learnTime; i++ {
 					if c.IsQuit() {
 						return
@@ -968,6 +1029,7 @@ func (c *Core) LearnVideo(user *model.User) {
 							log.Errorf("[视频学习] 页面滚动失败 title=%s step=%d err=%v", links[n].Title, i, err)
 						}
 					}
+					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
 				}
 				fmt.Println()
@@ -1138,7 +1200,11 @@ func (c *Core) RadioStation(user *model.User) {
 				humanPause(1500, 2800)
 				beforeVideoScore := score.Content["video"]
 				beforeVideoTimeScore := score.Content["video_time"]
-				learnTime := durationWithJitter(settings.AudioDurationSecs, settings.AudioDurationJitter)
+				mediaDuration := getStudyMediaDuration(page)
+				learnTime := computeMediaLearnTime(mediaDuration, settings.AudioDurationSecs, settings.AudioDurationJitter)
+				if mediaDuration > 0 {
+					log.Infof("[音频学习] 检测到媒体时长 %.0f 秒，计划学习 %d 秒", mediaDuration, learnTime)
+				}
 				for i := 0; i < learnTime; i++ {
 					if c.IsQuit() {
 						return
@@ -1150,6 +1216,7 @@ func (c *Core) RadioStation(user *model.User) {
 							log.Errorf("[音频学习] 页面滚动失败 title=%s step=%d err=%v", links[n].Title, i, err)
 						}
 					}
+					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
 				}
 				fmt.Println()

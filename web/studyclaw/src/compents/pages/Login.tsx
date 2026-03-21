@@ -1,5 +1,4 @@
 import React, { FormEvent, useState } from "react";
-import { Dialog } from "antd-mobile";
 
 import "../../stylel.css";
 import { checkToken, login } from "../../utils/api";
@@ -47,10 +46,6 @@ function Login(props: LoginProps) {
       }
 
       sessionStorage.setItem("level", tokenInfo.data === 1 ? "1" : "2");
-      await Dialog.alert({
-        content: resp.message || "登入成功",
-        closeOnMaskClick: true,
-      });
       props.navigate("/home");
     } catch (_error) {
       setError("登入請求失敗，請檢查服務是否可用。");
