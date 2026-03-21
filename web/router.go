@@ -175,8 +175,12 @@ func RouterInit() *gin.Engine {
 func check() gin.HandlerFunc {
 	config := conf.GetConfig()
 	return func(ctx *gin.Context) {
-		token := ctx.GetHeader("Authorization")
-		token = strings.Split(token, " ")[1]
+		raw := ctx.GetHeader("Authorization")
+		parts := strings.SplitN(raw, " ", 2)
+		token := ""
+		if len(parts) == 2 {
+			token = parts[1]
+		}
 		if token == "" {
 			ctx.JSON(401, Resp{
 				Code:    401,

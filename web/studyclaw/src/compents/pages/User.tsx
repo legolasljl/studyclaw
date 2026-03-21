@@ -130,25 +130,29 @@ class Users extends Component<any, any> {
   };
 
   fetchUserData = async () => {
-    const [usersResp, expiredResp] = await Promise.all([getUsers(), getExpiredUsers()]);
-    const users = usersResp.data || [];
-    const expiredUsers = expiredResp.data || [];
-    const allUsers = [...users, ...expiredUsers];
-    const scoreEntries = await Promise.all(
-      allUsers.map(async (user: UserRecord) => [user.token, await this.fetchScoreSnapshot(user.token, user.nick)] as const),
-    );
+    try {
+      const [usersResp, expiredResp] = await Promise.all([getUsers(), getExpiredUsers()]);
+      const users = (usersResp && usersResp.data) || [];
+      const expiredUsers = (expiredResp && expiredResp.data) || [];
+      const allUsers = [...users, ...expiredUsers];
+      const scoreEntries = await Promise.all(
+        allUsers.map(async (user: UserRecord) => [user.token, await this.fetchScoreSnapshot(user.token, user.nick)] as const),
+      );
 
-    const scoreSnapshots = scoreEntries.reduce((acc, [token, score]) => {
-      acc[token] = score;
-      return acc;
-    }, {} as Record<string, ScoreSnapshot>);
+      const scoreSnapshots = scoreEntries.reduce((acc, [token, score]) => {
+        acc[token] = score;
+        return acc;
+      }, {} as Record<string, ScoreSnapshot>);
 
-    this.setState({
-      users,
-      expiredUsers,
-      scoreSnapshots,
-      level: sessionStorage.getItem("level") || "2",
-    });
+      this.setState({
+        users,
+        expiredUsers,
+        scoreSnapshots,
+        level: sessionStorage.getItem("level") || "2",
+      });
+    } catch {
+      Toast.show("載入用戶資料失敗，請重新整理頁面。");
+    }
   };
 
   openScore = async (token: string, nick: string) => {

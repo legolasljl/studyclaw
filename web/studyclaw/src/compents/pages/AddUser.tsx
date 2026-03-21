@@ -46,7 +46,13 @@ class AddUser extends Component<any, any> {
       token: { success: false },
     });
 
-    let data = await getLink();
+    let data;
+    try {
+      data = await getLink();
+    } catch {
+      this.setState({ link: "", showExpiration: true });
+      return;
+    }
     this.setState({
       img: data.url,
       link: data.code,
@@ -57,24 +63,21 @@ class AddUser extends Component<any, any> {
     this.setState({ timer });
 
     let check = setInterval(async () => {
-      let resp = await checkQrCode(data.code);
-      if (resp.success) {
-        clearInterval(check);
-        console.log("登入成功");
-        console.log(resp.data);
-
-        let token = await getToken(resp.data.split("=")[1], data.sign);
-        console.log(token);
-        if (token.success) {
-          // Toast.show(
-          //   "登录成功\n该软件为免费软件，若你正在付费使用，请速度举报管理员"
-          // );
-          this.setState({
-            link: "",
-            token: token,
-          });
-          this.usersRef.current.fetchUserData();
+      try {
+        let resp = await checkQrCode(data.code);
+        if (resp && resp.success) {
+          clearInterval(check);
+          let token = await getToken(resp.data.split("=")[1], data.sign);
+          if (token && token.success) {
+            this.setState({
+              link: "",
+              token: token,
+            });
+            this.usersRef.current.fetchUserData();
+          }
         }
+      } catch {
+        // ignore polling errors
       }
     }, 1000);
 

@@ -3,6 +3,7 @@
 package model
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -167,11 +168,10 @@ func UpdateUser(user *User) error {
  * @return error
  */
 func DeleteUser(uid string) error {
-	_ = engine.Ping()
-	_, err := engine.Where("uid=?", uid).Delete(new(User))
-	if err != nil {
-		return err
+	if err := engine.Ping(); err != nil {
+		return fmt.Errorf("database connection lost: %w", err)
 	}
+	_, err := engine.Where("uid=?", uid).Delete(new(User))
 	return err
 }
 

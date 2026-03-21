@@ -22,17 +22,16 @@ class Http {
                    value.headers.Authorization = "Bearer "+localStorage.getItem("studyclaw_token")
                }
                return value
-        },()=>{
-                console.log("请求异常")
+        },(error)=>{
+               return Promise.reject(error)
         })
         this.service.interceptors.response.use((value)=>{
-            console.log(value.data)
             return value
         },(error)=>{
-            console.log(error.message)
-            if (error.message === "Request failed with status code 401"){
+            if (error.response && error.response.status === 401){
                 window.location.hash = "/login"
             }
+            return Promise.reject(error)
         })
     }
 

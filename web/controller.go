@@ -65,7 +65,10 @@ func userLogin() gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		u := new(user)
-		_ = ctx.BindJSON(u)
+		if err := ctx.ShouldBindJSON(u); err != nil {
+			ctx.JSON(400, Resp{Code: 400, Message: "invalid request", Success: false, Error: err.Error()})
+			return
+		}
 		config := conf.GetConfig()
 		if u.Account == config.Web.Account && u.Password == config.Web.Password {
 			ctx.JSON(200, Resp{
@@ -285,7 +288,8 @@ func cors() gin.HandlerFunc {
 
 		// 允许类型校验
 		if method == "OPTIONS" {
-			c.JSON(http.StatusOK, "ok!")
+			c.AbortWithStatus(http.StatusNoContent)
+			return
 		}
 
 		defer func() {
