@@ -2062,7 +2062,7 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 	box, err := handle.BoundingBox()
 	if err == nil && box != nil {
 		// 先移動到元素附近（不是直接到元素上）
-		randomOffsetX := float64(rand2.Intn(100) - 50) // -50 到 50 的隨機偏移
+		randomOffsetX := float64(rand2.Intn(100) - 50)
 		randomOffsetY := float64(rand2.Intn(80) - 40)
 		_ = handle.Hover(playwright.ElementHandleHoverOptions{
 			Timeout: playwright.Float(3000),
@@ -2075,16 +2075,14 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 		// 短暫停頓，模擬猶豫
 		humanPause(300, 800)
 
-		// 再移動到元素中心
+		// 再移動到元素中心附近（帶隨機偏移）
+		clickX := box.Width*0.2 + float64(rand2.Intn(maxInt(int(box.Width*0.6), 1)))
+		clickY := box.Height*0.2 + float64(rand2.Intn(maxInt(int(box.Height*0.6), 1)))
 		_ = handle.Hover(playwright.ElementHandleHoverOptions{
 			Timeout: playwright.Float(3000),
-			Position: &playwright.Position{
-				X: box.Width / 2,
-				Y: box.Height / 2,
-			},
+			Position: &playwright.Position{X: clickX, Y: clickY},
 		})
 	} else {
-		// 備用方案：直接 Hover
 		_ = handle.Hover(playwright.ElementHandleHoverOptions{
 			Timeout: playwright.Float(3000),
 		})
@@ -2093,8 +2091,17 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 	// 添加點擊前的停頓（模擬思考）
 	humanPause(500, 1200)
 
+	var clickPos *playwright.Position
+	if box != nil {
+		clickPos = &playwright.Position{
+			X: box.Width*0.2 + float64(rand2.Intn(maxInt(int(box.Width*0.6), 1))),
+			Y: box.Height*0.2 + float64(rand2.Intn(maxInt(int(box.Height*0.6), 1))),
+		}
+	}
+
 	err = handle.Click(playwright.ElementHandleClickOptions{
-		Timeout: playwright.Float(10000),
+		Timeout:  playwright.Float(10000),
+		Position: clickPos,
 	})
 	if err == nil {
 		return nil
@@ -2876,7 +2883,7 @@ func fillClickBlank(page playwright.Page, questionText string, answer []string) 
 		const tryClick = (el) => {
 			if (!el) return false;
 			try {
-				el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+				const _r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window, clientX: _r.left + _r.width * (0.3 + Math.random() * 0.4), clientY: _r.top + _r.height * (0.3 + Math.random() * 0.4) }));
 			} catch (e) {}
 			try {
 				if (typeof el.click === "function") {
@@ -3201,7 +3208,7 @@ func clickAnswerContinueButton(page playwright.Page, buttonSelectors []string) e
 		const tryClick = (el) => {
 			if (!el) return false;
 			try {
-				el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+				const _r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window, clientX: _r.left + _r.width * (0.3 + Math.random() * 0.4), clientY: _r.top + _r.height * (0.3 + Math.random() * 0.4) }));
 			} catch (e) {}
 			try {
 				if (typeof el.click === "function") {
@@ -3585,7 +3592,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		const tryClick = (el) => {
 			if (!el) return false;
 			try {
-				el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+				const _r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window, clientX: _r.left + _r.width * (0.3 + Math.random() * 0.4), clientY: _r.top + _r.height * (0.3 + Math.random() * 0.4) }));
 			} catch (e) {}
 			try {
 				if (typeof el.click === "function") {

@@ -618,6 +618,19 @@ func shouldScrollAtStep(step int, interval int) bool {
 	return step > 0 && interval > 0 && step%interval == 0
 }
 
+// maybeMouseDrift 以約 1/4 概率在頁面內做一次小幅隨機鼠標移動，模擬閱讀時的游標漂移
+// 僅耗時 ~50ms，不會顯著增加學習時間
+func maybeMouseDrift(page studyPage) {
+	if rand.Intn(4) != 0 {
+		return
+	}
+	x := float64(100 + rand.Intn(600))
+	y := float64(200 + rand.Intn(400))
+	if p, ok := page.(playwright.Page); ok {
+		_ = p.Mouse().Move(x, y)
+	}
+}
+
 func durationWithJitter(baseSeconds int, jitterSeconds int) int {
 	if jitterSeconds <= 0 {
 		return baseSeconds
@@ -858,6 +871,7 @@ func (c *Core) LearnArticle(user *model.User) {
 						if err := scrollStudyPage(page, i); err != nil {
 							log.Errorf("[文章学习] 页面滚动失败 title=%s step=%d err=%v", links[n].Title, i, err)
 						}
+						maybeMouseDrift(page)
 					}
 					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
@@ -1028,6 +1042,7 @@ func (c *Core) LearnVideo(user *model.User) {
 						if err := scrollStudyPage(page, i); err != nil {
 							log.Errorf("[视频学习] 页面滚动失败 title=%s step=%d err=%v", links[n].Title, i, err)
 						}
+						maybeMouseDrift(page)
 					}
 					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
@@ -1215,6 +1230,7 @@ func (c *Core) RadioStation(user *model.User) {
 						if err := scrollStudyPage(page, i); err != nil {
 							log.Errorf("[音频学习] 页面滚动失败 title=%s step=%d err=%v", links[n].Title, i, err)
 						}
+						maybeMouseDrift(page)
 					}
 					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)

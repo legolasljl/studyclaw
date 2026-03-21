@@ -8,9 +8,9 @@ func TestWorkflowStepsModelOneUsesArticleThenAudio(t *testing.T) {
 	assertWorkflowSteps(t, got, want)
 }
 
-func TestWorkflowStepsModelTwoStillUsesArticleThenAudio(t *testing.T) {
+func TestWorkflowStepsModelTwoUsesArticleAudioAndDailyQuiz(t *testing.T) {
 	got := workflowSteps(2)
-	want := []studyStep{studyStepArticle, studyStepAudio}
+	want := []studyStep{studyStepArticle, studyStepAudio, studyStepDailyQuiz}
 	assertWorkflowSteps(t, got, want)
 }
 
