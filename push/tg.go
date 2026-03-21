@@ -388,7 +388,9 @@ func login(bot *Telegram, from int64, args []string) {
 				case kind == "markdown":
 					newMessage := tgbotapi.NewMessage(bot.ChatId, message)
 					newMessage.ParseMode = tgbotapi.ModeMarkdownV2
-					bot.bot.Send(newMessage)
+					if _, err := bot.bot.Send(newMessage); err != nil {
+						log.Errorf("[Telegram] send failed: %v", err)
+					}
 				case kind == "text":
 					if log.GetLevel() == log.DebugLevel {
 						bot.SendMsg(from, message)
@@ -447,8 +449,9 @@ func studyAll(bot *Telegram, from int64, args []string) {
 					case kind == "markdown":
 						newMessage := tgbotapi.NewMessage(bot.ChatId, message)
 						newMessage.ParseMode = tgbotapi.ModeMarkdownV2
-						_, _ = bot.bot.Send(newMessage)
-
+						if _, err := bot.bot.Send(newMessage); err != nil {
+							log.Errorf("[Telegram] send failed: %v", err)
+						}
 					case kind == "text":
 						if log.GetLevel() == log.DebugLevel {
 							bot.SendMsg(from, message)
@@ -601,8 +604,9 @@ func study(bot *Telegram, from int64, args []string) {
 			case kind == "markdown":
 				newMessage := tgbotapi.NewMessage(bot.ChatId, message)
 				newMessage.ParseMode = tgbotapi.ModeMarkdownV2
-				_, _ = bot.bot.Send(newMessage)
-
+				if _, err := bot.bot.Send(newMessage); err != nil {
+					log.Errorf("[Telegram] send failed: %v", err)
+				}
 			case kind == "text":
 				if log.GetLevel() == log.DebugLevel {
 					bot.SendMsg(from, message)

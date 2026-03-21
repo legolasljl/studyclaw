@@ -45,7 +45,10 @@ func configFileSet() gin.HandlerFunc {
 			return
 		}
 		var body map[string]string
-		_ = ctx.ShouldBindJSON(&body)
+		if err := ctx.ShouldBindJSON(&body); err != nil {
+			ctx.JSON(400, Resp{Code: 400, Message: "invalid request", Success: false, Error: err.Error()})
+			return
+		}
 
 		err := yaml.Unmarshal([]byte(body["data"]), new(conf.Config))
 		if err != nil {

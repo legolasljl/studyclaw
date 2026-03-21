@@ -46,7 +46,7 @@ class AddUser extends Component<any, any> {
       token: { success: false },
     });
 
-    let data;
+    let data: { url: string; code: string; sign: string };
     try {
       data = await getLink();
     } catch {

@@ -91,7 +91,7 @@ function Home(props: HomeProps) {
           setStudyMode(resp.data.model);
         }
       })
-      .catch(() => {});
+      .catch(() => { /* study mode is optional, fallback to default */ });
   }, []);
 
   const logout = () => {

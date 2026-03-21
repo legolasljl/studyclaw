@@ -3797,10 +3797,16 @@ func GetSpecialContent(cookies []*http.Cookie, id int) *SpecialContent {
 	if err != nil {
 		return nil
 	}
-	data, _ := base64.StdEncoding.DecodeString(gjson.GetBytes(response.Bytes(), "data_str").String())
-	log.Println(string(data))
+	data, err2 := base64.StdEncoding.DecodeString(gjson.GetBytes(response.Bytes(), "data_str").String())
+	if err2 != nil {
+		log.Errorf("base64 decode failed: %v", err2)
+		return nil
+	}
 	content := new(SpecialContent)
-	_ = json.Unmarshal(data, content)
+	if err3 := json.Unmarshal(data, content); err3 != nil {
+		log.Errorf("json unmarshal failed: %v", err3)
+		return nil
+	}
 	return content
 }
 

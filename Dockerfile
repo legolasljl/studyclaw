@@ -12,7 +12,7 @@ RUN  apt-get -qq update && \
      echo ${TZ} > /etc/timezone && \
      dpkg-reconfigure --frontend noninteractive tzdata &&\
      rm -rf /var/lib/apt/lists/* && \
-     mkdir /opt/config/
+     mkdir -p /opt/config/
 
 COPY conf/config_default.yml /opt/config/config.yml
 COPY conf/QuestionBank.db /opt/QuestionBank.db
