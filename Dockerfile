@@ -2,7 +2,7 @@ FROM ubuntu:jammy
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
-ARG TZ="Asia/Shanghai"
+ARG TZ="Asia/Taipei"
 
 RUN  apt-get -qq update && \
      apt-get -qq install -y --no-install-recommends tzdata ca-certificates libglib2.0-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \

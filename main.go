@@ -52,16 +52,7 @@ func init() {
 	if shouldRunInBackground() {
 		runBack()
 	}
-	fmt.Printf("\033[1;31;40m%s\033[0m\n\n", "******************************************************************")
-
-	fmt.Printf("\033[1;31;40m%s\033[0m\n\n", "软件仅可用户学习和个人使用，禁止用于任何商业活动！！！！")
-
-	fmt.Printf("\033[1;31;40m%s\033[0m\n\n", "软件仅可用户学习和个人使用，禁止用于任何商业活动！！！！")
-
-	fmt.Printf("\033[1;31;40m%s\033[0m\n\n", "软件仅可用户学习和个人使用，禁止用于任何商业活动！！！！")
-
-	fmt.Printf("\033[1;31;40m%s\033[0m\n\n", "******************************************************************")
-	time.Sleep(3 * time.Second)
+	fmt.Printf("\n\033[1;36m%s\033[0m\n\n", "  ⚡ 本ソフトウェアは学習・個人利用のみ許可されています。商用利用は禁止です。")
 
 	flag.BoolVar(&u, "u", false, "更新应用")
 	flag.BoolVar(&i, "init", false, "init the app")
@@ -151,7 +142,7 @@ func init() {
 
 func main() {
 	conf.SetVersion(VERSION)
-	log.Infoln("当前程序运行版本： " + VERSION)
+	log.Infoln("現在のバージョン： " + VERSION)
 	if i {
 		core := &lib.Core{}
 		core.Init()
