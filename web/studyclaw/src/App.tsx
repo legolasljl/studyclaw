@@ -18,7 +18,7 @@ function App() {
                 return;
             }
 
-            if (!t) {
+            if (!t || !t.success) {
                 sessionStorage.removeItem("level");
                 if (location.pathname !== "/login") {
                     navigate("/login", { replace: true });
@@ -44,7 +44,8 @@ function App() {
         return () => {
             active = false;
         };
-    }, [location.pathname, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     if (checking) {
         return (
