@@ -66,30 +66,42 @@ class Help extends Component<any, any> {
           </div>
         </div>
 
-        <article className="page-card page-card--article configcss">
-          <h2 style={{ margin: 10 }}>
-            專案位址：
-            <a href="https://github.com/legolasljl/studyclaw">https://github.com/legolasljl/studyclaw</a>
-          </h2>
-          {this.state.about ? <p style={{ margin: 10 }}>{this.state.about}</p> : null}
+        <div className="manual-grid">
+          <article className="page-card manual-card manual-card--wide">
+            <span className="section-kicker">Project</span>
+            <h3>部署與 Web 入口</h3>
+            <p>{this.state.about || "正式入口維持在 /studyclaw/，前端與 API 共用同一條管理鏈路。"}</p>
+            {this.renderList(deployNotes)}
+            <div className="manual-link-row">
+              <a href="https://github.com/legolasljl/studyclaw">GitHub Repo</a>
+            </div>
+          </article>
 
-          <h3>目前工作流</h3>
-          {this.renderList(workflowNotes)}
+          <article className="page-card manual-card">
+            <span className="section-kicker">Workflow</span>
+            <h3>目前工作流</h3>
+            {this.renderList(workflowNotes)}
+          </article>
 
-          <h3>登入與多帳號</h3>
-          {this.renderList(accessNotes)}
+          <article className="page-card manual-card">
+            <span className="section-kicker">Access</span>
+            <h3>登入與多帳號</h3>
+            {this.renderList(accessNotes)}
+          </article>
 
-          <h3>部署與 Web 入口</h3>
-          {this.renderList(deployNotes)}
+          <article className="page-card manual-card">
+            <span className="section-kicker">Notification</span>
+            <h3>完成通知格式</h3>
+            <pre>
+              <code>{notificationTemplate.join("\n")}</code>
+            </pre>
+          </article>
 
-          <h3>完成通知格式</h3>
-          <pre>
-            <code>{notificationTemplate.join("\n")}</code>
-          </pre>
-
-          <h3>建議配置</h3>
-          <pre>
-            <code>{`web:
+          <article className="page-card manual-card">
+            <span className="section-kicker">Suggested Config</span>
+            <h3>建議配置</h3>
+            <pre>
+              <code>{`web:
   enable: true
   host: 0.0.0.0
   port: 8080
@@ -98,10 +110,9 @@ class Help extends Component<any, any> {
   common_user:
     user1: password1
     user2: password2`}</code>
-          </pre>
-
-          <p>本專案僅供學習與測試用途。若你需要進一步調整部署方式，請優先對照目前的 Dockerfile、docker-compose.yml 與 Web 路由設定。</p>
-        </article>
+            </pre>
+          </article>
+        </div>
       </section>
     );
   }

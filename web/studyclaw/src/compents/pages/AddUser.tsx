@@ -132,20 +132,34 @@ class AddUser extends Component<any, any> {
           </div>
 
           <div className="onboarding-grid">
-            <button className="onboarding-card onboarding-card--primary" onClick={this.click}>
-              <div className="onboarding-card__icon">
-                <span className="las la-user-plus"></span>
+            <button className="onboarding-card onboarding-card--primary onboarding-card--qr" onClick={this.click}>
+              <span className="section-kicker">Add User</span>
+              <div className="onboarding-qr-preview" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+                <span />
+                <span />
+                <span />
+                <span />
+                <span />
+                <span />
               </div>
-              <div>
-                <strong>添加用戶</strong>
-                <p>產生授權二維碼，接入新的學習帳戶。</p>
-              </div>
+              <strong>生成授權 QR Code</strong>
+              <p>點擊後產生登入碼，使用學習強國 App 掃碼完成接入。</p>
+              <span className="onboarding-card__cta">開始接入</span>
             </button>
 
-            <article className="onboarding-card">
-              <strong>使用提示</strong>
-              <p>電腦端建議直接掃碼；手機瀏覽器可嘗試跳轉到學習強國 App；微信內不支援直接拉起 App。</p>
-            </article>
+            <div className="onboarding-side-stack">
+              <article className="onboarding-card onboarding-card--note">
+                <strong>接入提示</strong>
+                <p>桌面端建議直接掃碼；手機瀏覽器可嘗試跳轉到學習強國 App；微信內不支援直接拉起 App。</p>
+              </article>
+              <article className="onboarding-card onboarding-card--note">
+                <strong>狀態說明</strong>
+                <p>接入成功後，卡片會即時展示登入時間、學習時長、今日得分、總積分與三個任務進度。</p>
+              </article>
+            </div>
           </div>
 
           {this.state.showPopup && (
@@ -223,7 +237,7 @@ class AddUser extends Component<any, any> {
             </div>
           )}
         </section>
-        <Users ref={this.usersRef} />
+        <Users ref={this.usersRef} navigate={this.props.navigate} />
       </>
     );
   }

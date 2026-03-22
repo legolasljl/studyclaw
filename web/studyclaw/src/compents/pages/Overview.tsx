@@ -35,73 +35,136 @@ class Overview extends Component<any, any> {
         const totalUsers = Math.max(summaryPanelData.totalUsers, 1);
         const activeRate = Math.round((summaryPanelData.activeUsers / totalUsers) * 100);
         const runningRate = Math.round((summaryPanelData.studyingUsers / totalUsers) * 100);
+        const healthRate = summaryPanelData.totalUsers === 0
+            ? 98
+            : Math.max(36, Math.min(99, Math.round(activeRate * 0.72 + runningRate * 0.28)));
+        const statCards = [
+            {
+                title: "Daily Overview",
+                label: "Total Users",
+                value: summaryPanelData.totalUsers,
+                delta: `${summaryPanelData.activeUsers} ready`,
+                icon: "las la-users",
+            },
+            {
+                title: "Daily Overview",
+                label: "Active Learners",
+                value: summaryPanelData.activeUsers,
+                delta: `${activeRate}% active`,
+                icon: "las la-user-check",
+            },
+            {
+                title: "Daily Overview",
+                label: "Tasks Completed",
+                value: summaryPanelData.studyingUsers,
+                delta: `${runningRate}% running`,
+                icon: "las la-tasks",
+            },
+        ];
+        const activityItems = [
+            {
+                label: summaryPanelData.totalUsers === 0 ? "Console ready for onboarding" : `${summaryPanelData.totalUsers} users synced into console`,
+                time: "just now",
+                tone: "good",
+            },
+            {
+                label: `${summaryPanelData.activeUsers} accounts available for immediate study`,
+                time: "sync",
+                tone: "good",
+            },
+            {
+                label: `${summaryPanelData.inactiveUsers} accounts require re-authentication`,
+                time: "watch",
+                tone: summaryPanelData.inactiveUsers > 0 ? "warn" : "good",
+            },
+            {
+                label: `${summaryPanelData.studyingUsers} jobs currently running`,
+                time: "runtime",
+                tone: summaryPanelData.studyingUsers > 0 ? "info" : "muted",
+            },
+        ];
 
         return (
-            <div className="page-stack">
-                <section className="page-section">
-                    <div className="section-heading">
-                        <div>
-                            <span className="section-kicker">Overview</span>
-                            <h2>今日運行總覽</h2>
-                            <p>從帳戶可用性到執行中任務，先看全局，再決定是否手動介入。</p>
-                        </div>
-                    </div>
+            <div className="overview-board">
+                <div className="overview-main">
+                    <section className="overview-stats-grid">
+                        {statCards.map((card) => (
+                            <article className="overview-stat-card" key={card.label}>
+                                <div className="overview-stat-card__head">
+                                    <div>
+                                        <span>{card.title}</span>
+                                        <strong>{card.label}</strong>
+                                    </div>
+                                    <div className="overview-stat-card__icon">
+                                        <span className={card.icon} />
+                                    </div>
+                                </div>
+                                <div className="overview-stat-card__value">{card.value}</div>
+                                <div className="overview-stat-card__footer">
+                                    <small>{card.delta}</small>
+                                    <span className="overview-sparkline" />
+                                </div>
+                            </article>
+                        ))}
+                    </section>
 
-                    <div className="summary-grid">
-                        <article className="summary-card">
-                            <span className="summary-card__label">總帳戶數</span>
-                            <strong>{summaryPanelData.totalUsers}</strong>
-                            <p>已接入控制台的帳戶總數。</p>
-                        </article>
-                        <article className="summary-card">
-                            <span className="summary-card__label">有效帳戶</span>
-                            <strong>{summaryPanelData.activeUsers}</strong>
-                            <p>登入狀態有效，可直接執行任務。</p>
-                        </article>
-                        <article className="summary-card">
-                            <span className="summary-card__label">失效帳戶</span>
-                            <strong>{summaryPanelData.inactiveUsers}</strong>
-                            <p>需要重新授權或重新接入的帳戶。</p>
-                        </article>
-                        <article className="summary-card">
-                            <span className="summary-card__label">執行中任務</span>
-                            <strong>{summaryPanelData.studyingUsers}</strong>
-                            <p>目前正在自動學習的帳戶數。</p>
-                        </article>
-                    </div>
-                </section>
-
-                <section className="insight-grid">
-                    <article className="page-card page-card--accent">
-                        <span className="section-kicker">Health Check</span>
-                        <h3>控制台健康度</h3>
-                        <div className="insight-metric">
-                            <span>有效帳戶佔比</span>
-                            <strong>{activeRate}%</strong>
+                    <article className="overview-health-card">
+                        <div className="overview-health-card__header">
+                            <div>
+                                <span className="section-kicker">Console Health</span>
+                                <h3>控制台健康度</h3>
+                            </div>
+                            <div className="overview-health-card__meta">
+                                <span>Active {activeRate}%</span>
+                                <span>Running {runningRate}%</span>
+                            </div>
                         </div>
-                        <div className="insight-metric">
-                            <span>執行中任務佔比</span>
-                            <strong>{runningRate}%</strong>
+                        <div className="overview-health-card__score">{healthRate}%</div>
+                        <div className="overview-health-card__track">
+                            <div className="overview-health-card__value" style={{ width: `${healthRate}%` }} />
                         </div>
-                        <p>若有效帳戶比例偏低，優先到「用戶管理」重新掃碼接入；若執行中帳戶過多，可檢查日誌確認是否有阻塞。</p>
+                        <p>{summaryPanelData.inactiveUsers > 0 ? "部分帳戶需要重新登入，建議優先處理失效帳戶。" : "System operating normally，帳戶與執行鏈路目前健康。"}</p>
                     </article>
+                </div>
 
-                    <article className="page-card">
+                <aside className="overview-side">
+                    <article className="overview-side-card">
                         <span className="section-kicker">Quick Actions</span>
-                        <h3>下一步操作</h3>
-                        <div className="quick-action-list">
-                            <button className="ghost-button" onClick={() => this.props.navigate("/home/user")}>
-                                打開用戶管理
+                        <h3>快捷操作</h3>
+                        <div className="overview-action-list">
+                            <button className="overview-action-pill" onClick={() => this.props.navigate("/home/user")}>
+                                <span className="las la-user-plus" />
+                                <span>新增用戶</span>
                             </button>
-                            <button className="ghost-button" onClick={() => this.props.navigate("/home/other/log")}>
-                                查看實時日誌
+                            <button className="overview-action-pill" onClick={() => this.props.navigate("/home/other")}>
+                                <span className="las la-sliders-h" />
+                                <span>管理控制台</span>
                             </button>
-                            <button className="ghost-button" onClick={() => this.props.navigate("/home/help")}>
-                                打開使用說明
+                            <button className="overview-action-pill" onClick={() => this.props.navigate("/home/other/log")}>
+                                <span className="las la-file-alt" />
+                                <span>查看系統日誌</span>
+                            </button>
+                            <button className="overview-action-pill" onClick={() => this.props.navigate("/home/help")}>
+                                <span className="las la-book-open" />
+                                <span>部署說明</span>
                             </button>
                         </div>
                     </article>
-                </section>
+
+                    <article className="overview-side-card">
+                        <span className="section-kicker">Recent Activity</span>
+                        <h3>最近活動</h3>
+                        <div className="overview-activity-list">
+                            {activityItems.map((item) => (
+                                <div className="overview-activity-item" key={`${item.label}-${item.time}`}>
+                                    <span className={`overview-activity-item__dot overview-activity-item__dot--${item.tone}`} />
+                                    <span className="overview-activity-item__label">{item.label}</span>
+                                    <small>{item.time}</small>
+                                </div>
+                            ))}
+                        </div>
+                    </article>
+                </aside>
             </div>
         );
     }

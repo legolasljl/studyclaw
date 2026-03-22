@@ -81,9 +81,23 @@ class Users extends Component<any, any> {
     return `${date.getFullYear()}年${`${date.getMonth() + 1}`.padStart(2, "0")}月${`${date.getDate()}`.padStart(2, "0")}日 ${`${date.getHours()}`.padStart(2, "0")}:${`${date.getMinutes()}`.padStart(2, "0")}:${`${date.getSeconds()}`.padStart(2, "0")}`;
   };
 
-  getOnlineDays = (value: number) => {
-    const now = Date.now();
-    return Math.max(Math.floor((now - value * 1000) / (1000 * 60 * 60 * 24)), 0);
+  getOnlineDuration = (value: number) => {
+    const diff = Math.max(Date.now() - value * 1000, 0);
+    const day = 1000 * 60 * 60 * 24;
+    const hour = 1000 * 60 * 60;
+    const minute = 1000 * 60;
+    const days = Math.floor(diff / day);
+
+    if (days > 0) {
+      return `${days} 天`;
+    }
+
+    const hours = Math.floor(diff / hour);
+    if (hours > 0) {
+      return `${hours} 小時`;
+    }
+
+    return `${Math.max(Math.floor(diff / minute), 1)} 分鐘`;
   };
 
   convertToPercentage = (current: number, total: number) => {
@@ -169,6 +183,45 @@ class Users extends Component<any, any> {
       selectedScore: null,
       loadingScore: false,
     });
+  };
+
+  getStatusMeta = (isExpired: boolean, isStudy: boolean) => {
+    if (isExpired) {
+      return {
+        badge: "已過期",
+        badgeClassName: "user-status-badge user-status-badge--expired",
+        chipClassName: "user-chip user-chip--expired",
+        chipLabel: "等待重新接入",
+        description: "Cookie 已失效，需要重新掃碼授權後才能恢復學習任務。",
+      };
+    }
+
+    if (isStudy) {
+      return {
+        badge: "運行中",
+        badgeClassName: "user-status-badge user-status-badge--running",
+        chipClassName: "user-chip user-chip--running",
+        chipLabel: "任務進行中",
+        description: "文章、視頻與答題進度會隨後端分數快照即時更新。",
+      };
+    }
+
+    return {
+      badge: "待機中",
+      badgeClassName: "user-status-badge user-status-badge--idle",
+      chipClassName: "user-chip user-chip--idle",
+      chipLabel: "準備就緒",
+      description: "可以直接開始學習，或先打開日誌確認當前後端狀態。",
+    };
+  };
+
+  openLog = () => {
+    if (typeof this.props.navigate === "function") {
+      this.props.navigate("/home/other/log");
+      return;
+    }
+
+    window.location.assign("/home/other/log");
   };
 
   toggleStudy = async (uid: string, isStudy: boolean, isExpired: boolean) => {
@@ -276,89 +329,100 @@ class Users extends Component<any, any> {
   renderUserCard = (user: UserRecord, isExpired: boolean) => {
     const score = this.state.scoreSnapshots[user.token] || { ...emptyScore, nick: user.nick };
     const lastCharacter = user.nick ? user.nick[user.nick.length - 1] : "?";
+    const statusMeta = this.getStatusMeta(isExpired, user.is_study);
+    const metaItems = [
+      { key: "login", label: "登入時間", value: this.formatTimestamp(user.login_time), icon: "las la-clock" },
+      { key: "duration", label: "時長", value: this.getOnlineDuration(user.login_time), icon: "las la-history" },
+      { key: "today", label: "今日得分", value: `${score.todayScore}`, icon: "las la-trophy" },
+      { key: "total", label: "總積分", value: `${score.totalScore}`, icon: "las la-calculator" },
+    ];
+    const progressItems = [
+      { key: "article", label: "文章", scoreText: score.articleScore, percentage: score.articlePercentage, className: "" },
+      { key: "video", label: "視頻", scoreText: score.videoScore, percentage: score.videoPercentage, className: " mini-progress__value--accent" },
+      { key: "daily", label: "答題", scoreText: score.dailyScore, percentage: score.dailyPercentage, className: " mini-progress__value--daily" },
+    ];
+    const tertiaryAction = this.state.level === "1"
+      ? {
+        label: "刪除用戶",
+        className: "user-action user-action--danger",
+        onClick: () => this.deleteUserRecord(user.uid, user.nick),
+      }
+      : {
+        label: "積分詳情",
+        className: "user-action user-action--ghost",
+        onClick: () => this.openScore(user.token, user.nick),
+      };
 
     return (
       <article key={user.uid} className={`user-card${isExpired ? " user-card--expired" : ""}`}>
         <div className="user-card__header">
           <div className="user-card__identity">
-            <span className="user-card__avatar">{lastCharacter}</span>
-            <div>
-              <span className="user-chip">{isExpired ? "已失效" : user.is_study ? "學習中" : "待機中"}</span>
-              <h3>{user.nick}</h3>
+            <span className={`user-card__avatar${isExpired ? " user-card__avatar--expired" : ""}`}>
+              {lastCharacter}
+              <small className={`user-card__presence${isExpired ? " user-card__presence--expired" : ""}`} />
+            </span>
+            <div className="user-card__identity-copy">
+              <div className="user-card__title-row">
+                <h3>{user.nick}</h3>
+                <span className={statusMeta.badgeClassName}>{statusMeta.badge}</span>
+              </div>
               <p>UID {user.uid}</p>
             </div>
           </div>
-          <span className={`user-state${user.is_study && !isExpired ? " user-state--running" : ""}`}>
-            {isExpired ? "需要重新接入" : user.is_study ? "執行中" : "可啟動"}
-          </span>
+          <button type="button" className="user-card__score-link" onClick={() => this.openScore(user.token, user.nick)}>
+            積分詳情
+          </button>
         </div>
 
         <div className="user-card__meta">
-          <div>
-            <span>登入時間</span>
-            <strong>{this.formatTimestamp(user.login_time)}</strong>
-          </div>
-          <div>
-            <span>接入時長</span>
-            <strong>{this.getOnlineDays(user.login_time)} 天</strong>
-          </div>
-          <div>
-            <span>今日得分</span>
-            <strong>{score.todayScore}</strong>
-          </div>
-          <div>
-            <span>當前總積分</span>
-            <strong>{score.totalScore}</strong>
-          </div>
+          {metaItems.map((item) => (
+            <div key={item.key} className="user-card__meta-item">
+              <span className={`user-card__meta-icon ${item.icon}`} />
+              <div>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="user-card__progress">
-          <div className="mini-progress">
-            <div className="mini-progress__head">
-              <strong>文章學習</strong>
-              <span>{score.articleScore}</span>
-            </div>
-            <div className="mini-progress__track">
-              <div className="mini-progress__value" style={{ width: score.articlePercentage }} />
-            </div>
+          <div className="user-card__progress-intro">
+            <span className={statusMeta.chipClassName}>{statusMeta.chipLabel}</span>
+            <p>{statusMeta.description}</p>
           </div>
 
-          <div className="mini-progress">
-            <div className="mini-progress__head">
-              <strong>視頻學習</strong>
-              <span>{score.videoScore}</span>
+          {progressItems.map((item) => (
+            <div className="mini-progress" key={item.key}>
+              <div className="mini-progress__head">
+                <div>
+                  <strong>{item.label}</strong>
+                  <small>{item.scoreText}</small>
+                </div>
+                <span>{item.percentage}</span>
+              </div>
+              <div className="mini-progress__track">
+                <div className={`mini-progress__value${item.className}`} style={{ width: item.percentage }} />
+              </div>
             </div>
-            <div className="mini-progress__track">
-              <div className="mini-progress__value mini-progress__value--accent" style={{ width: score.videoPercentage }} />
-            </div>
-          </div>
-
-          <div className="mini-progress">
-            <div className="mini-progress__head">
-              <strong>每日答題</strong>
-              <span>{score.dailyScore}</span>
-            </div>
-            <div className="mini-progress__track">
-              <div className="mini-progress__value mini-progress__value--daily" style={{ width: score.dailyPercentage }} />
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="user-card__actions">
           <button
-            className="ghost-button"
+            type="button"
+            className="user-action user-action--primary"
             onClick={() => this.toggleStudy(user.uid, user.is_study, isExpired)}
+            disabled={isExpired}
           >
             {user.is_study && !isExpired ? "停止學習" : "開始學習"}
           </button>
-          <button className="ghost-button ghost-button--muted" onClick={() => this.openScore(user.token, user.nick)}>
-            積分詳情
+          <button type="button" className="user-action user-action--secondary" onClick={this.openLog}>
+            日誌
           </button>
-          {this.state.level === "1" ? (
-            <button className="ghost-button ghost-button--danger" onClick={() => this.deleteUserRecord(user.uid, user.nick)}>
-              刪除用戶
-            </button>
-          ) : null}
+          <button type="button" className={tertiaryAction.className} onClick={tertiaryAction.onClick}>
+            {tertiaryAction.label}
+          </button>
         </div>
       </article>
     );
@@ -382,22 +446,22 @@ class Users extends Component<any, any> {
 
         <div className="summary-grid">
           <article className="summary-card">
-            <span className="summary-card__label">TOTAL</span>
+            <span className="summary-card__label">Accounts</span>
             <strong>{summary.totalUsers}</strong>
             <p>已記錄的帳戶數量。</p>
           </article>
           <article className="summary-card">
-            <span className="summary-card__label">ACTIVE</span>
+            <span className="summary-card__label">Active</span>
             <strong>{summary.activeUsers}</strong>
             <p>目前 Cookie 有效的帳戶。</p>
           </article>
           <article className="summary-card">
-            <span className="summary-card__label">RUNNING</span>
+            <span className="summary-card__label">Running</span>
             <strong>{summary.studyingUsers}</strong>
             <p>正在執行文章與音頻學習。</p>
           </article>
           <article className="summary-card">
-            <span className="summary-card__label">EXPIRED</span>
+            <span className="summary-card__label">Expired</span>
             <strong>{summary.inactiveUsers}</strong>
             <p>需要重新掃碼接入的帳戶。</p>
           </article>
