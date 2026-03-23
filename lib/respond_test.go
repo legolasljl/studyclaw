@@ -60,6 +60,40 @@ func TestContainsAnswerSliderSpecificText(t *testing.T) {
 	}
 }
 
+func TestContainsAnswerSliderLooseText(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{
+			name: "generic slider text",
+			text: "系统即将弹出滑块，请拖动验证",
+			want: true,
+		},
+		{
+			name: "non slider text",
+			text: "请完成阅读后继续答题",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsAnswerSliderLooseText(tt.text); got != tt.want {
+				t.Fatalf("containsAnswerSliderLooseText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContainsAnswerFlowBlockedText(t *testing.T) {
+	text := "请不要中途开启新的答题流程，不支持多端同时作答"
+	if !containsAnswerFlowBlockedText(text) {
+		t.Fatalf("containsAnswerFlowBlockedText() = false, want true")
+	}
+}
+
 func TestIsAnswerCompletionText(t *testing.T) {
 	tests := []struct {
 		name string

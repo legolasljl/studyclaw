@@ -155,6 +155,26 @@ func hasAnswerSliderExactPrompt(page playwright.Page) bool {
 	return hasVisibleSelector(page, answerSliderExactSelectors)
 }
 
+func hasPotentialAnswerSliderElement(page playwright.Page) bool {
+	result, err := page.Evaluate(`() => {
+		const targetSelector = '[id*="captcha"], [id*="slider"], [id*="nc_"], [id*="drag"], [id*="slide"], [class*="captcha"], [class*="slider"], [class*="nc_"], [class*="slide"], [class*="drag"]';
+		const elements = document.querySelectorAll(targetSelector);
+		for (const el of elements) {
+			const rect = el.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) continue;
+			const style = window.getComputedStyle(el);
+			if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
+			return true;
+		}
+		return false;
+	}`)
+	if err != nil {
+		return false
+	}
+	ok, _ := result.(bool)
+	return ok
+}
+
 func containsAnswerSliderSpecificText(text string) bool {
 	normalized := normalizeAnswerButtonText(text)
 	if normalized == "" {
@@ -173,6 +193,18 @@ func containsAnswerSliderSpecificText(text string) bool {
 		}
 	}
 	return false
+}
+
+func containsAnswerSliderLooseText(text string) bool {
+	normalized := normalizeAnswerButtonText(text)
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "滑块") ||
+		strings.Contains(normalized, "滑动验证") ||
+		strings.Contains(normalized, "拖动验证") ||
+		strings.Contains(normalized, "请拖动") ||
+		strings.Contains(normalized, "按住滑动")
 }
 
 func containsAnswerSliderContextText(text string) bool {
@@ -197,6 +229,16 @@ func containsAnswerSliderContextText(text string) bool {
 	return false
 }
 
+func containsAnswerFlowBlockedText(text string) bool {
+	normalized := normalizeAnswerButtonText(text)
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "请不要中途开启新的答题流程") ||
+		strings.Contains(normalized, "不支持多端同时作答") ||
+		strings.Contains(normalized, "答题流程")
+}
+
 func getAnswerPageText(page playwright.Page) string {
 	result, err := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
 	if err != nil {
@@ -209,7 +251,7 @@ func getAnswerPageText(page playwright.Page) string {
 	return text
 }
 
-func hasAnswerSliderPrompt(page playwright.Page) bool {
+func hasAnswerSliderDeepPrompt(page playwright.Page) bool {
 	if hasAnswerSliderExactPrompt(page) {
 		log.Infoln("[答題] 通過精確選擇器檢測到滑塊驗證")
 		return true
@@ -226,7 +268,16 @@ func hasAnswerSliderPrompt(page playwright.Page) bool {
 		return true
 	}
 
+	if containsAnswerSliderLooseText(text) && hasPotentialAnswerSliderElement(page) {
+		log.Infoln("[答題] 通過深度檢查檢測到滑塊驗證")
+		return true
+	}
+
 	return false
+}
+
+func hasAnswerSliderPrompt(page playwright.Page) bool {
+	return hasAnswerSliderDeepPrompt(page)
 }
 
 // detectAndLogSliderElements 檢測並打印頁面上所有可能的滑塊元素（用於調試）
@@ -3376,7 +3427,7 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 
 	for time.Now().Before(deadline) {
 		checkCount++
-		shouldScanPageText := checkCount == 1 || checkCount%3 == 0
+		shouldDeepScan := checkCount == 1 || checkCount%3 == 0
 
 		// 優先做低成本 selector 檢查，避免在緊密輪詢中反覆抽取全文文本
 		if hasAnswerSliderExactPrompt(page) {
@@ -3384,13 +3435,18 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			return false
 		}
 
-		if shouldScanPageText {
+		if shouldDeepScan {
 			pageText := getAnswerPageText(page)
 			if isAnswerCompletionText(pageText) {
 				log.Infoln("[答題] 系統判斷完成，已到達結果頁")
 				return true
 			}
-			if containsAnswerSliderSpecificText(pageText) || (containsAnswerSliderContextText(pageText) && hasVisibleSelector(page, answerSliderFallbackSelectors)) {
+			if containsAnswerFlowBlockedText(pageText) {
+				log.Warningln("[答題] 檢測到答題流程佔用提示")
+				return false
+			}
+			if containsAnswerSliderSpecificText(pageText) ||
+				((containsAnswerSliderContextText(pageText) || containsAnswerSliderLooseText(pageText)) && hasPotentialAnswerSliderElement(page)) {
 				log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
 				return false
 			}
@@ -3606,9 +3662,14 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 等待系統判斷完成（最多等待15秒，加快速度）
 		if !waitForSystemJudgment(page, 15*time.Second) {
 			// 可能是滑塊或其他問題
-			if hasAnswerSliderPrompt(page) {
+			if hasAnswerSliderDeepPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
+			}
+			pageText := getAnswerPageText(page)
+			if containsAnswerFlowBlockedText(pageText) {
+				log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
+				humanPause(20000, 30000)
 			}
 			log.Warningln("[答題] 系統判斷超時，嘗試刷新頁面")
 			// 刷新頁面重試
@@ -3623,9 +3684,12 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 				log.Infoln("[答題] 刷新後檢測到結果頁，本輪答題結束")
 				return ErrAnswerComplete
 			}
-			if hasAnswerSliderPrompt(page) {
+			if hasAnswerSliderDeepPrompt(page) {
 				log.Warningln("[答題] 刷新後檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
+			}
+			if containsAnswerFlowBlockedText(getAnswerPageText(page)) {
+				return fmt.Errorf("檢測到答題流程佔用，刷新後仍未恢復")
 			}
 			// 返回錯誤，讓上層處理
 			return fmt.Errorf("系統判斷超時，刷新後仍未恢復")
