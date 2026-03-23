@@ -196,17 +196,21 @@ func scrollStudyPage(page studyPage, step int) error {
 }
 
 // simulateStudyMouseDrift 在學習循環中偶爾模擬鼠標漂移，模擬真人閱讀時的游標移動
+// 使用 Playwright 原生 Mouse.Move 產生 isTrusted: true 事件
 func simulateStudyMouseDrift(page studyPage) {
 	if rand.Intn(3) != 0 {
 		return
 	}
-	mouseX := rand.Intn(800) + 100
-	mouseY := rand.Intn(500) + 100
-	_, _ = page.Evaluate(fmt.Sprintf(`() => {
-		document.dispatchEvent(new MouseEvent('mousemove', {
-			bubbles: true, cancelable: true, clientX: %d, clientY: %d
-		}));
-	}`, mouseX, mouseY))
+	p, ok := page.(playwright.Page)
+	if !ok {
+		return
+	}
+	mouseX := float64(rand.Intn(800) + 100)
+	mouseY := float64(rand.Intn(500) + 100)
+	driftSteps := rand.Intn(5) + 3
+	p.Mouse().Move(mouseX, mouseY, playwright.MouseMoveOptions{
+		Steps: &driftSteps,
+	})
 }
 
 func buildStudyMediaPlaybackScript(mediaKind string) string {
@@ -627,7 +631,10 @@ func maybeMouseDrift(page studyPage) {
 	x := float64(100 + rand.Intn(600))
 	y := float64(200 + rand.Intn(400))
 	if p, ok := page.(playwright.Page); ok {
-		_ = p.Mouse().Move(x, y)
+		nudgeSteps := rand.Intn(4) + 2
+		p.Mouse().Move(x, y, playwright.MouseMoveOptions{
+			Steps: &nudgeSteps,
+		})
 	}
 }
 

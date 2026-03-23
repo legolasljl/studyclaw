@@ -101,18 +101,13 @@ func simulateHumanBehavior(page playwright.Page) {
 		humanPause(300, 800)
 	}
 
-	// 隨機鼠標移動到頁面不同位置
-	mouseX := rand2.Intn(800) + 100
-	mouseY := rand2.Intn(500) + 100
-	_, _ = page.Evaluate(fmt.Sprintf(`() => {
-		const event = new MouseEvent('mousemove', {
-			bubbles: true,
-			cancelable: true,
-			clientX: %d,
-			clientY: %d
-		});
-		document.dispatchEvent(event);
-	}`, mouseX, mouseY))
+	// 隨機鼠標移動到頁面不同位置（使用 Playwright 原生方法，產生 isTrusted: true 事件）
+	mouseX := float64(rand2.Intn(800) + 100)
+	mouseY := float64(rand2.Intn(500) + 100)
+	steps := rand2.Intn(5) + 3
+	page.Mouse().Move(mouseX, mouseY, playwright.MouseMoveOptions{
+		Steps: &steps,
+	})
 
 	humanPause(200, 500)
 }
@@ -861,14 +856,17 @@ func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX
 	distanceX := endX - startX
 
 	// 1) 隨機移到滑塊附近區域，模擬找按鈕
-	page.Mouse().Move(startX-float64(rand2.Intn(30)+10), startY+float64(rand2.Intn(20)-10))
+	moveSteps := rand2.Intn(6) + 5
+	page.Mouse().Move(startX-float64(rand2.Intn(30)+10), startY+float64(rand2.Intn(20)-10), playwright.MouseMoveOptions{Steps: &moveSteps})
 	humanPause(100, 300)
 	// 可能額外晃一下
 	if rand2.Intn(3) == 0 {
-		page.Mouse().Move(startX+float64(rand2.Intn(10)-5), startY-float64(rand2.Intn(8)+2))
+		wobbleSteps := rand2.Intn(3) + 2
+		page.Mouse().Move(startX+float64(rand2.Intn(10)-5), startY-float64(rand2.Intn(8)+2), playwright.MouseMoveOptions{Steps: &wobbleSteps})
 		humanPause(50, 150)
 	}
-	page.Mouse().Move(startX, startY)
+	approachSteps := rand2.Intn(4) + 3
+	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &approachSteps})
 	humanPause(150, 400)
 
 	// 2) 按下，真人按下前有微小延遲
@@ -942,14 +940,16 @@ func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX
 		}
 	}
 
-	// 4) 執行軌跡
+	// 4) 執行軌跡（每步加入中間點，增加 mousemove 事件密度）
 	for _, p := range trail {
-		page.Mouse().Move(p.x, p.y)
+		trailSteps := rand2.Intn(3) + 2
+		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &trailSteps})
 		time.Sleep(time.Duration(p.delay) * time.Millisecond)
 	}
 
 	// 5) 最終精確定位 + 短暫停留 + 鬆手
-	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1))
+	finalSteps := rand2.Intn(3) + 2
+	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
 	humanPause(100, 350)
 	page.Mouse().Up()
 }
@@ -1749,7 +1749,6 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 		}
 		score = latestScore
 	}
-	return false
 }
 
 func GetAnswerPage(page playwright.Page, model string) bool {
@@ -3403,6 +3402,16 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 					}`)
 					visible, _ := isVisible.(bool)
 					if visible {
+						// 「完成」按鈕就緒時，CAPTCHA JS 可能尚未加載完成
+						// 額外等待並再次檢查滑塊驗證，避免競態條件
+						if strings.Contains(text, "完成") {
+							log.Infoln("[答題] 「完成」按鈕已可點擊，等待確認是否有滑塊驗證...")
+							humanPause(1500, 2500)
+							if hasAnswerSliderPrompt(page) {
+								log.Infoln("[答題] 等待後檢測到滑塊驗證")
+								return false
+							}
+						}
 						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊 (檢測次數:", checkCount, ")")
 						return true
 					} else {
@@ -3527,9 +3536,9 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 點擊「確定」後，等待系統判斷完成
 		log.Infoln("[答題] 等待系統判斷答案...")
 
-		// 快速等待頁面穩定
+		// 等待頁面穩定，預留足夠時間讓 CAPTCHA JS 加載
 		_ = page.WaitForLoadState()
-		humanPause(300, 600)
+		humanPause(1200, 2000)
 
 		// 檢測是否有滑塊
 		if hasAnswerSliderPrompt(page) {

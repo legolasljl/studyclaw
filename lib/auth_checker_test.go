@@ -8,21 +8,22 @@ import (
 
 func TestNewAuthChecker(t *testing.T) {
 	tests := []struct {
-		name     string
-		config   AuthCheckerConfig
-		expected AuthChecker
+		name              string
+		config            AuthCheckerConfig
+		maxFailures       int
+		cooldownPeriod    time.Duration
+		maxSliderFailures int
+		moduleName        string
 	}{
 		{
 			name: "default values",
 			config: AuthCheckerConfig{
 				ModuleName: "test",
 			},
-			expected: AuthChecker{
-				maxFailures:       3,
-				cooldownPeriod:    5 * time.Minute,
-				maxSliderFailures: 3,
-				moduleName:        "test",
-			},
+			maxFailures:       3,
+			cooldownPeriod:    5 * time.Minute,
+			maxSliderFailures: 3,
+			moduleName:        "test",
 		},
 		{
 			name: "custom values",
@@ -32,12 +33,10 @@ func TestNewAuthChecker(t *testing.T) {
 				MaxSliderFailures: 2,
 				ModuleName:        "custom",
 			},
-			expected: AuthChecker{
-				maxFailures:       5,
-				cooldownPeriod:    10 * time.Minute,
-				maxSliderFailures: 2,
-				moduleName:        "custom",
-			},
+			maxFailures:       5,
+			cooldownPeriod:    10 * time.Minute,
+			maxSliderFailures: 2,
+			moduleName:        "custom",
 		},
 		{
 			name: "zero values use defaults",
@@ -47,29 +46,27 @@ func TestNewAuthChecker(t *testing.T) {
 				MaxSliderFailures: 0,
 				ModuleName:        "",
 			},
-			expected: AuthChecker{
-				maxFailures:       3,
-				cooldownPeriod:    5 * time.Minute,
-				maxSliderFailures: 3,
-				moduleName:        "未知模組",
-			},
+			maxFailures:       3,
+			cooldownPeriod:    5 * time.Minute,
+			maxSliderFailures: 3,
+			moduleName:        "未知模組",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			checker := NewAuthChecker(tt.config)
-			if checker.maxFailures != tt.expected.maxFailures {
-				t.Errorf("maxFailures = %d, want %d", checker.maxFailures, tt.expected.maxFailures)
+			if checker.maxFailures != tt.maxFailures {
+				t.Errorf("maxFailures = %d, want %d", checker.maxFailures, tt.maxFailures)
 			}
-			if checker.cooldownPeriod != tt.expected.cooldownPeriod {
-				t.Errorf("cooldownPeriod = %v, want %v", checker.cooldownPeriod, tt.expected.cooldownPeriod)
+			if checker.cooldownPeriod != tt.cooldownPeriod {
+				t.Errorf("cooldownPeriod = %v, want %v", checker.cooldownPeriod, tt.cooldownPeriod)
 			}
-			if checker.maxSliderFailures != tt.expected.maxSliderFailures {
-				t.Errorf("maxSliderFailures = %d, want %d", checker.maxSliderFailures, tt.expected.maxSliderFailures)
+			if checker.maxSliderFailures != tt.maxSliderFailures {
+				t.Errorf("maxSliderFailures = %d, want %d", checker.maxSliderFailures, tt.maxSliderFailures)
 			}
-			if checker.moduleName != tt.expected.moduleName {
-				t.Errorf("moduleName = %s, want %s", checker.moduleName, tt.expected.moduleName)
+			if checker.moduleName != tt.moduleName {
+				t.Errorf("moduleName = %s, want %s", checker.moduleName, tt.moduleName)
 			}
 		})
 	}
