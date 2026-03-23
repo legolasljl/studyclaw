@@ -151,6 +151,10 @@ func hasAnswerQuestion(page playwright.Page) bool {
 	return hasVisibleSelector(page, answerQuestionSelectors)
 }
 
+func hasAnswerSliderExactPrompt(page playwright.Page) bool {
+	return hasVisibleSelector(page, answerSliderExactSelectors)
+}
+
 func containsAnswerSliderSpecificText(text string) bool {
 	normalized := normalizeAnswerButtonText(text)
 	if normalized == "" {
@@ -206,7 +210,7 @@ func getAnswerPageText(page playwright.Page) string {
 }
 
 func hasAnswerSliderPrompt(page playwright.Page) bool {
-	if hasVisibleSelector(page, answerSliderExactSelectors) {
+	if hasAnswerSliderExactPrompt(page) {
 		log.Infoln("[答題] 通過精確選擇器檢測到滑塊驗證")
 		return true
 	}
@@ -3364,11 +3368,6 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 		`#app .action-row > div`,
 		`.action-row button`,
 		`.action-row [role="button"]`,
-		`button.ant-btn`,
-		`.ant-btn`,
-		`button[class*="submit"]`,
-		`button[class*="next"]`,
-		`button`,
 	}
 	nextKeywords := []string{"下一题", "继续答题", "完成"}
 	checkCount := 0
@@ -3377,22 +3376,28 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 
 	for time.Now().Before(deadline) {
 		checkCount++
+		shouldScanPageText := checkCount == 1 || checkCount%3 == 0
 
-		// 檢測是否到達結果頁
-		if isAnswerRoundComplete(page) {
-			log.Infoln("[答題] 系統判斷完成，已到達結果頁")
-			return true
-		}
-
-		// 檢測是否有滑塊
-		if hasAnswerSliderPrompt(page) {
+		// 優先做低成本 selector 檢查，避免在緊密輪詢中反覆抽取全文文本
+		if hasAnswerSliderExactPrompt(page) {
 			log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
 			return false
 		}
 
+		if shouldScanPageText {
+			pageText := getAnswerPageText(page)
+			if isAnswerCompletionText(pageText) {
+				log.Infoln("[答題] 系統判斷完成，已到達結果頁")
+				return true
+			}
+			if containsAnswerSliderSpecificText(pageText) || (containsAnswerSliderContextText(pageText) && hasVisibleSelector(page, answerSliderFallbackSelectors)) {
+				log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
+				return false
+			}
+		}
+
 		// 第一次檢測時，打印頁面狀態（用於調試）
 		if checkCount == 1 {
-			// 檢查是否有錯誤提示或加載狀態
 			errorText, _ := page.Evaluate(`() => {
 				const errorEl = document.querySelector('.error, .ant-message, .ant-alert, [class*="error"], [class*="loading"]');
 				return errorEl ? errorEl.textContent : '';
@@ -3411,13 +3416,13 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 
 			// 前幾次檢測時，打印所有選擇器的按鈕信息（用於調試）
 			if !loggedButtons && checkCount <= 3 && selectorIdx < 3 {
-				log.Infoln("[答題] 調試：選擇器[", selectorIdx, "] ", selector, " 找到 ", len(btns), " 個按鈕")
+				log.Debugln("[答題] 調試：選擇器[", selectorIdx, "] ", selector, " 找到 ", len(btns), " 個按鈕")
 				for i, btn := range btns {
 					text, _ := btn.TextContent()
 					text = strings.TrimSpace(text)
 					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 					disabled, _ := isDisabled.(bool)
-					log.Infoln("[答題] 調試：按鈕[", i, "] 文本='", text, "' 禁用=", disabled)
+					log.Debugln("[答題] 調試：按鈕[", i, "] 文本='", text, "' 禁用=", disabled)
 				}
 				if selectorIdx == 2 {
 					loggedButtons = true
@@ -3506,7 +3511,7 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			}
 		}
 
-		humanPause(200, 400) // 快速檢測間隔
+		humanPause(650, 1050)
 	}
 
 	log.Warningln("[答題] 等待系統判斷超時 (檢測次數:", checkCount, ")")
