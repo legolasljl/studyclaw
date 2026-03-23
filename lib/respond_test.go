@@ -23,6 +23,43 @@ func TestNormalizeAnswerButtonText(t *testing.T) {
 	}
 }
 
+func TestContainsAnswerSliderSpecificText(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{
+			name: "specific slider instruction",
+			text: "请按住滑块，拖动到最右边完成验证",
+			want: true,
+		},
+		{
+			name: "specific slide verification phrase",
+			text: "系统提示：向右滑动验证后继续",
+			want: true,
+		},
+		{
+			name: "generic slider word should not match",
+			text: "本题材料提到滑块轴承的机械结构",
+			want: false,
+		},
+		{
+			name: "generic verification text should not match",
+			text: "请完成验证后继续答题",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsAnswerSliderSpecificText(tt.text); got != tt.want {
+				t.Fatalf("containsAnswerSliderSpecificText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsAnswerCompletionText(t *testing.T) {
 	tests := []struct {
 		name string

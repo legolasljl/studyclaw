@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	MyPointsUri       = "https://pc.xuexi.cn/points/my-points.html"
-	DailyPracticeUri  = "https://pc.xuexi.cn/points/exam-practice.html"
+	MyPointsUri      = "https://pc.xuexi.cn/points/my-points.html"
+	DailyPracticeUri = "https://pc.xuexi.cn/points/exam-practice.html"
 
 	DailyBUTTON   = `#app > div > div.layout-body > div > div.my-points-section > div.my-points-content > div:nth-child(4) > div.my-points-card-footer > div.buttonbox > div`
 	WEEKEND       = `#app > div > div.layout-body > div > div.my-points-section > div.my-points-content > div:nth-child(7) > div.my-points-card-footer > div.buttonbox > div`
@@ -44,22 +44,28 @@ var (
 		`.detail-body .question .q-header`,
 		`.question .q-header`,
 	}
-	answerSliderSelectors = []string{
+	answerSliderExactSelectors = []string{
 		`#nc_mask > div`,
 		`#nc_1_wrapper`,
 		`.nc-container`,
 		`[id^="nc_"][id$="_wrapper"]`,
-		// 新增更多滑塊選擇器
-		`[class*="slider"]`,
+		`.nc_wrapper`,
+		`.nc_mask`,
+		`#JS_aliyun-captcha-slider_bind_element`,
+		`.JS_aliyun-captcha-slider_bind_element`,
+		`[id*="aliyun-captcha"]`,
+		`[class*="aliyun-captcha"]`,
+		`[class*="captcha"][class*="slider"]`,
+		`[class*="verify"][class*="slider"]`,
+		`[id*="captcha"][id*="slider"]`,
+	}
+	answerSliderFallbackSelectors = []string{
 		`[class*="drag-verify"]`,
 		`[class*="slide-verify"]`,
 		`.slidercontainer`,
 		`.slide-verify`,
 		`.drag_verify`,
-		`[id*="slider"]`,
 		`[class*="captcha-slider"]`,
-		`.nc_wrapper`,
-		`.nc_mask`,
 	}
 )
 
@@ -145,28 +151,74 @@ func hasAnswerQuestion(page playwright.Page) bool {
 	return hasVisibleSelector(page, answerQuestionSelectors)
 }
 
-func hasAnswerSliderPrompt(page playwright.Page) bool {
-	// 首先嘗試選擇器檢測
-	if hasVisibleSelector(page, answerSliderSelectors) {
-		log.Infoln("[答題] 通過選擇器檢測到滑塊驗證")
-		return true
+func containsAnswerSliderSpecificText(text string) bool {
+	normalized := normalizeAnswerButtonText(text)
+	if normalized == "" {
+		return false
 	}
+	phrases := []string{
+		"请按住滑块",
+		"拖动到最右边",
+		"向右滑动验证",
+		"滑块验证",
+		"滑块校验",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
+}
 
-	// 檢測頁面文本中的滑塊提示
+func containsAnswerSliderContextText(text string) bool {
+	normalized := normalizeAnswerButtonText(text)
+	if normalized == "" {
+		return false
+	}
+	contextKeywords := []string{
+		"请按住",
+		"拖动到最右边",
+		"向右滑动",
+		"安全验证",
+		"完成验证",
+		"验证码",
+		"校验",
+	}
+	for _, keyword := range contextKeywords {
+		if strings.Contains(normalized, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func getAnswerPageText(page playwright.Page) string {
 	result, err := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
 	if err != nil {
-		return false
+		return ""
 	}
 	text, ok := result.(string)
 	if !ok {
-		return false
+		return ""
 	}
-	normalized := normalizeAnswerButtonText(text)
-	if strings.Contains(normalized, "请按住滑块") ||
-		strings.Contains(normalized, "拖动到最右边") ||
-		strings.Contains(normalized, "向右滑动验证") ||
-		strings.Contains(normalized, "滑块") {
-		log.Infoln("[答題] 通過文本檢測到滑塊驗證提示")
+	return text
+}
+
+func hasAnswerSliderPrompt(page playwright.Page) bool {
+	if hasVisibleSelector(page, answerSliderExactSelectors) {
+		log.Infoln("[答題] 通過精確選擇器檢測到滑塊驗證")
+		return true
+	}
+
+	text := getAnswerPageText(page)
+	if containsAnswerSliderSpecificText(text) {
+		log.Infoln("[答題] 通過滑塊文本檢測到驗證提示")
+		return true
+	}
+
+	if containsAnswerSliderContextText(text) && hasVisibleSelector(page, answerSliderFallbackSelectors) {
+		log.Infoln("[答題] 通過備援選擇器檢測到滑塊驗證")
 		return true
 	}
 
@@ -2078,7 +2130,7 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 		clickX := box.Width*0.2 + float64(rand2.Intn(maxInt(int(box.Width*0.6), 1)))
 		clickY := box.Height*0.2 + float64(rand2.Intn(maxInt(int(box.Height*0.6), 1)))
 		_ = handle.Hover(playwright.ElementHandleHoverOptions{
-			Timeout: playwright.Float(3000),
+			Timeout:  playwright.Float(3000),
 			Position: &playwright.Position{X: clickX, Y: clickY},
 		})
 	} else {

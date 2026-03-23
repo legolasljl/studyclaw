@@ -195,24 +195,6 @@ func scrollStudyPage(page studyPage, step int) error {
 	return err
 }
 
-// simulateStudyMouseDrift 在學習循環中偶爾模擬鼠標漂移，模擬真人閱讀時的游標移動
-// 使用 Playwright 原生 Mouse.Move 產生 isTrusted: true 事件
-func simulateStudyMouseDrift(page studyPage) {
-	if rand.Intn(3) != 0 {
-		return
-	}
-	p, ok := page.(playwright.Page)
-	if !ok {
-		return
-	}
-	mouseX := float64(rand.Intn(800) + 100)
-	mouseY := float64(rand.Intn(500) + 100)
-	driftSteps := rand.Intn(5) + 3
-	p.Mouse().Move(mouseX, mouseY, playwright.MouseMoveOptions{
-		Steps: &driftSteps,
-	})
-}
-
 func buildStudyMediaPlaybackScript(mediaKind string) string {
 	return fmt.Sprintf(`async () => {
 		const kind = %q;
@@ -622,8 +604,8 @@ func shouldScrollAtStep(step int, interval int) bool {
 	return step > 0 && interval > 0 && step%interval == 0
 }
 
-// maybeMouseDrift 以約 1/4 概率在頁面內做一次小幅隨機鼠標移動，模擬閱讀時的游標漂移
-// 僅耗時 ~50ms，不會顯著增加學習時間
+// maybeMouseDrift 僅在捲動節點後注入一次低成本可信滑鼠移動。
+// 保留 isTrusted: true 的特徵，但避免在每秒學習循環中持續製造高密度事件。
 func maybeMouseDrift(page studyPage) {
 	if rand.Intn(4) != 0 {
 		return
@@ -631,10 +613,7 @@ func maybeMouseDrift(page studyPage) {
 	x := float64(100 + rand.Intn(600))
 	y := float64(200 + rand.Intn(400))
 	if p, ok := page.(playwright.Page); ok {
-		nudgeSteps := rand.Intn(4) + 2
-		p.Mouse().Move(x, y, playwright.MouseMoveOptions{
-			Steps: &nudgeSteps,
-		})
+		_ = p.Mouse().Move(x, y)
 	}
 }
 
@@ -880,7 +859,6 @@ func (c *Core) LearnArticle(user *model.User) {
 						}
 						maybeMouseDrift(page)
 					}
-					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
 				}
 				fmt.Println()
@@ -1051,7 +1029,6 @@ func (c *Core) LearnVideo(user *model.User) {
 						}
 						maybeMouseDrift(page)
 					}
-					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
 				}
 				fmt.Println()
@@ -1239,7 +1216,6 @@ func (c *Core) RadioStation(user *model.User) {
 						}
 						maybeMouseDrift(page)
 					}
-					simulateStudyMouseDrift(page)
 					humanPause(850, 1350)
 				}
 				fmt.Println()
