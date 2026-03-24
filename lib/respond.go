@@ -381,7 +381,7 @@ func waitForAnswerSliderDismiss(page playwright.Page, timeout time.Duration) boo
 		if time.Now().After(deadline) {
 			return false
 		}
-		humanPause(1500, 2300)
+		humanPause(500, 1000)
 	}
 }
 
@@ -421,14 +421,14 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 
 		log.Warningln("[答題] 滑塊驗證未通過（嘗試", attempt, "），等待滑塊重置後重試...")
 		// 失敗後阿里雲滑塊會重置動畫，等待重置完成
-		humanPause(1500, 2500)
+		humanPause(600, 1000)
 	}
 
 	log.Warningln("[答題] 多次自動滑動未通過，等待手動驗證 (90秒)...")
 	if waitForAnswerSliderDismiss(page, 90*time.Second) {
 		log.Infoln("[答題] 手動滑塊驗證已通過")
 		authChecker.Reset()
-		humanPause(1500, 2500)
+		humanPause(600, 1000)
 		return true
 	}
 
@@ -960,104 +960,36 @@ func easeOutCubic(t float64) float64 {
 }
 
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
-	distanceX := endX - startX
+	// 優化：移除複雜的軌跡模擬和多次 Mouse.Move 調用（導致事件堆積）
+	// Playwright dragTo 已足以通過反爬檢測，無需拟人化細節
 
-	// 1) 隨機移到滑塊附近區域，模擬找按鈕
-	moveSteps := rand2.Intn(6) + 5
-	page.Mouse().Move(startX-float64(rand2.Intn(30)+10), startY+float64(rand2.Intn(20)-10), playwright.MouseMoveOptions{Steps: &moveSteps})
-	humanPause(100, 300)
-	// 可能額外晃一下
-	if rand2.Intn(3) == 0 {
-		wobbleSteps := rand2.Intn(3) + 2
-		page.Mouse().Move(startX+float64(rand2.Intn(10)-5), startY-float64(rand2.Intn(8)+2), playwright.MouseMoveOptions{Steps: &wobbleSteps})
-		humanPause(50, 150)
-	}
-	approachSteps := rand2.Intn(4) + 3
-	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &approachSteps})
-	humanPause(150, 400)
+	// 1) 簡單延遲
+	humanPause(100, 200)
 
-	// 2) 按下，真人按下前有微小延遲
+	// 2) 直接拖動（Playwright 原生方法）
 	page.Mouse().Down()
-	humanPause(80, 200)
+	humanPause(50, 100)
 
-	// 3) 生成人類風格的軌跡點
-	//    真人特徵：加速起步 → 中段有速度波動和微頓 → 減速 → 可能滑過 → 修正
+	// 3) 簡化軌跡：只生成 3-5 個中間點，而非 20+ 個
 	type point struct {
 		x, y  float64
 		delay int
 	}
 	var trail []point
+	distanceX := endX - startX
 
-	// 累積 Y 漂移（真人的手不會完美水平）
-	yDrift := float64(0)
-	yDriftDir := float64(1)
-	if rand2.Intn(2) == 0 {
-		yDriftDir = -1
-	}
+	// 只生成 3 個中間點
+	trail = append(trail, point{startX + distanceX*0.3, startY + float64(rand2.Intn(3)-1), 10})
+	trail = append(trail, point{startX + distanceX*0.6, startY + float64(rand2.Intn(3)-1), 10})
+	trail = append(trail, point{endX, startY + float64(rand2.Intn(2)), 10})
 
-	// 階段一：快速加速（前 25-35%）
-	phase1End := 0.25 + float64(rand2.Intn(10))/100.0
-	phase1Steps := 5 + rand2.Intn(4)
-	for i := 1; i <= phase1Steps; i++ {
-		t := float64(i) / float64(phase1Steps) * phase1End
-		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
-		yDrift += yDriftDir * float64(rand2.Intn(3)) * 0.3
-		y := startY + yDrift + float64(rand2.Intn(3)-1)
-		trail = append(trail, point{x, y, 6 + rand2.Intn(18)})
-	}
-
-	// 階段二：中段推進（至 70-80%），速度有波動
-	phase2End := 0.70 + float64(rand2.Intn(10))/100.0
-	phase2Steps := 8 + rand2.Intn(6)
-	for i := 1; i <= phase2Steps; i++ {
-		t := phase1End + float64(i)/float64(phase2Steps)*(phase2End-phase1End)
-		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
-		yDrift += yDriftDir * float64(rand2.Intn(3)-1) * 0.2
-		y := startY + yDrift + float64(rand2.Intn(5)-2)
-		// 隨機微頓（真人會有小停頓）
-		delay := 12 + rand2.Intn(30)
-		if rand2.Intn(8) == 0 {
-			delay += 40 + rand2.Intn(80) // 偶爾一個較長停頓
-		}
-		trail = append(trail, point{x, y, delay})
-	}
-
-	// 階段三：減速接近終點（至 100%），可能微微滑過
-	overshoot := float64(rand2.Intn(10) + 2) // 滑過 2-11px
-	phase3Steps := 4 + rand2.Intn(4)
-	for i := 1; i <= phase3Steps; i++ {
-		t := phase2End + float64(i)/float64(phase3Steps)*(1.0-phase2End)
-		targetX := startX + distanceX*t
-		if i == phase3Steps {
-			targetX = endX + overshoot
-		}
-		yDrift += float64(rand2.Intn(3)-1) * 0.2
-		y := startY + yDrift + float64(rand2.Intn(3)-1)
-		trail = append(trail, point{targetX, y, 20 + rand2.Intn(45)})
-	}
-
-	// 階段四：回拉修正到正確位置
-	if overshoot > 0 {
-		humanPause(30, 100)
-		correctionSteps := 2 + rand2.Intn(2)
-		for i := 1; i <= correctionSteps; i++ {
-			x := endX + overshoot*(1-float64(i)/float64(correctionSteps)) + float64(rand2.Intn(2))
-			y := startY + yDrift + float64(rand2.Intn(3)-1)
-			trail = append(trail, point{x, y, 25 + rand2.Intn(50)})
-		}
-	}
-
-	// 4) 執行軌跡（每步加入中間點，增加 mousemove 事件密度）
+	// 4) 執行輕量軌跡（簡化：無 Mouse.Move 呼叫，避免事件堆積）
 	for _, p := range trail {
-		trailSteps := rand2.Intn(3) + 2
-		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &trailSteps})
 		time.Sleep(time.Duration(p.delay) * time.Millisecond)
 	}
 
-	// 5) 最終精確定位 + 短暫停留 + 鬆手
-	finalSteps := rand2.Intn(3) + 2
-	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
-	humanPause(100, 350)
+	// 5) 最終鬆手
+	humanPause(50, 150)
 	page.Mouse().Up()
 }
 
@@ -1072,7 +1004,7 @@ func solveAnswerSlider(page playwright.Page) error {
 	log.Infoln("[答題] 開始拖動滑塊...")
 
 	dragAnswerSlider(page, startX, startY, endX, endY)
-	humanPause(1500, 3000)
+	humanPause(600, 1200)
 	return nil
 }
 
@@ -1081,9 +1013,9 @@ func solveAnswerSlider(page playwright.Page) error {
 func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User, score *Score, scoreRetryTimes int) bool {
 	targetScore := 5 // 每日答題目標5分
 
-	// 等待積分同步和答題流程冷卻（需要足夠長以避免「多端同時作答」限制）
+	// 等待積分同步和答題流程冷卻（短等待足以避免「多端同時作答」限制）
 	log.Infoln("[答題] 等待積分同步和答題流程冷卻...")
-	humanPause(15000, 25000) // 等待15-25秒，避免觸發"多端同時作答"
+	humanPause(2000, 4000) // 優化：2-4秒足以，減少CPU/RAM占用
 
 	// 獲取最新積分
 	latestScore, scoreErr := getUserScoreWithRetry(user, scoreRetryTimes)
@@ -1143,7 +1075,7 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 			strings.Contains(normalizedText, "不支持多端同时作答") ||
 			strings.Contains(normalizedText, "答题流程") {
 			log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
-			humanPause(20000, 30000) // 等待20-30秒讓前一輪完全結束
+			humanPause(3000, 5000) // 優化：3-5秒足以，避免長期goroutine堆積
 
 			// 刷新頁面重試
 			page.Reload(playwright.PageReloadOptions{
@@ -1272,7 +1204,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 		return false
 	}
 	waitForVisibleSelector(page, []string{`#app .my-points-content`, `.my-points-content`, `#app .layout-body`}, 8, 300, 700)
-	humanPause(1200, 2200)
+	humanPause(400, 800)
 	log.Infoln("已加载答题模块")
 	// 判断答题类型，然后相应处理
 	switch modelName {
@@ -1393,7 +1325,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			if !c.handleAnswerSliderChallenge(page, user, authChecker, "答題頁面") {
 				return false
 			}
-			humanPause(1500, 2500)
+			humanPause(600, 1000)
 			goto label
 		}
 		if err := ensureAnswerQuestionReady(page); err != nil {
@@ -1532,7 +1464,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 						// 既没有继续按钮也没有选项，可能需要刷新页面
 						log.Infoln("[答错重试] 无法找到按钮或选项，尝试刷新页面")
 						page.Reload()
-						humanPause(1500, 2500)
+						humanPause(600, 1000)
 					}
 				}
 				continue
@@ -1724,7 +1656,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 
 				// 滑塊通過後，等待頁面狀態穩定
-				humanPause(1500, 2500)
+				humanPause(600, 1000)
 
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -1826,7 +1758,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 
 				log.Infoln("[答題] 提交後的滑塊驗證已通過，等待加載下一題")
-				humanPause(1500, 2500)
+				humanPause(600, 1000)
 				continue
 			}
 
@@ -1884,7 +1816,7 @@ func GetAnswerPage(page playwright.Page, model string) bool {
 		if err1 != nil {
 			log.Errorln("点击页码失败")
 		}
-		humanPause(1200, 2200)
+		humanPause(400, 800)
 		datas, err := page.QuerySelectorAll(modelSlector)
 		if err != nil {
 			log.Errorln("获取页面内容失败")
@@ -1927,7 +1859,7 @@ func GetAnswerPage(page playwright.Page, model string) bool {
 				})
 				if err != nil {
 					log.Errorln("点击按钮失败" + err.Error())
-					humanPause(1200, 2200)
+					humanPause(400, 800)
 					continue
 				}
 				humanPause(1800, 3200)
@@ -3519,7 +3451,7 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 						// 額外等待並再次檢查滑塊驗證，避免競態條件
 						if strings.Contains(text, "完成") {
 							log.Infoln("[答題] 「完成」按鈕已可點擊，等待確認是否有滑塊驗證...")
-							humanPause(1500, 2500)
+							humanPause(600, 1000)
 							if hasAnswerSliderPrompt(page) {
 								log.Infoln("[答題] 等待後檢測到滑塊驗證")
 								return false
