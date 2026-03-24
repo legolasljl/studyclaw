@@ -88,35 +88,8 @@ func humanPause(minMs int, maxMs int) {
 	time.Sleep(randomDurationBetween(minMs, maxMs))
 }
 
-// simulateHumanBehavior 模擬人類在頁面上的自然行為（鼠標移動、滾動等）
-func simulateHumanBehavior(page playwright.Page) {
-	// 隨機頁面滾動
-	scrollDirection := rand2.Intn(3)
-	scrollAmount := rand2.Intn(150) + 50
-	var scrollY int
-	switch scrollDirection {
-	case 0: // 向下滾動
-		scrollY = scrollAmount
-	case 1: // 向上滾動
-		scrollY = -scrollAmount
-	default: // 不滾動
-		scrollY = 0
-	}
-	if scrollY != 0 {
-		_, _ = page.Evaluate(fmt.Sprintf(`() => window.scrollBy(0, %d)`, scrollY))
-		humanPause(300, 800)
-	}
-
-	// 隨機鼠標移動到頁面不同位置（使用 Playwright 原生方法，產生 isTrusted: true 事件）
-	mouseX := float64(rand2.Intn(800) + 100)
-	mouseY := float64(rand2.Intn(500) + 100)
-	steps := rand2.Intn(5) + 3
-	page.Mouse().Move(mouseX, mouseY, playwright.MouseMoveOptions{
-		Steps: &steps,
-	})
-
-	humanPause(200, 500)
-}
+// simulateHumanBehavior 已移除 — 原為死代碼（定義但從未被呼叫），
+// 且包含 Mouse.Move+Steps 會在並發場景下產生性能問題。
 
 func hasVisibleSelector(page playwright.Page, selectors []string) bool {
 	for _, selector := range selectors {
@@ -420,15 +393,15 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 		}
 
 		log.Warningln("[答題] 滑塊驗證未通過（嘗試", attempt, "），等待滑塊重置後重試...")
-		// 失敗後阿里雲滑塊會重置動畫，等待重置完成
-		humanPause(600, 1000)
+		// 失敗後阿里雲滑塊會重置動畫（~1-1.5s），必須等動畫完成才能重試
+		humanPause(1500, 2500)
 	}
 
 	log.Warningln("[答題] 多次自動滑動未通過，等待手動驗證 (90秒)...")
 	if waitForAnswerSliderDismiss(page, 90*time.Second) {
 		log.Infoln("[答題] 手動滑塊驗證已通過")
 		authChecker.Reset()
-		humanPause(600, 1000)
+		humanPause(1500, 2500)
 		return true
 	}
 
@@ -962,35 +935,41 @@ func easeOutCubic(t float64) float64 {
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
 	distanceX := endX - startX
 
-	// 1) 移動到滑塊起點附近
-	humanPause(100, 200)
-	page.Mouse().Move(startX, startY)
+	// 1) 移動到滑塊起點
+	humanPause(150, 300)
+	steps := rand2.Intn(3) + 3
+	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &steps})
 
 	// 2) 按下
 	page.Mouse().Down()
-	humanPause(50, 100)
+	humanPause(80, 180)
 
-	// 3) 簡化軌跡：5 個中間點（原版 20+ 個，保留必要的移動事件）
+	// 3) 簡化軌跡：7 個中間點（原版 20+ 個太重，5 個太少）
+	//    加速起步 → 穩速推進 → 減速到達，delay 合計 ~400-700ms（真人水準）
 	type point struct {
 		x, y  float64
 		delay int
+		steps int
 	}
+	yDrift := float64(0)
 	trail := []point{
-		{startX + distanceX*0.15, startY + float64(rand2.Intn(3)-1), 15 + rand2.Intn(20)},
-		{startX + distanceX*0.35, startY + float64(rand2.Intn(3)-1), 15 + rand2.Intn(20)},
-		{startX + distanceX*0.55, startY + float64(rand2.Intn(5)-2), 20 + rand2.Intn(30)},
-		{startX + distanceX*0.75, startY + float64(rand2.Intn(3)-1), 15 + rand2.Intn(20)},
-		{endX, startY + float64(rand2.Intn(3)-1), 10 + rand2.Intn(15)},
+		{startX + distanceX*0.10, startY + float64(rand2.Intn(3)-1), 20 + rand2.Intn(25), 3},
+		{startX + distanceX*0.25, startY + float64(rand2.Intn(3)-1), 25 + rand2.Intn(30), 3},
+		{startX + distanceX*0.40, startY + float64(rand2.Intn(5)-2), 35 + rand2.Intn(40), 4},
+		{startX + distanceX*0.55, startY + float64(rand2.Intn(3)-1), 35 + rand2.Intn(40), 4},
+		{startX + distanceX*0.70, startY + float64(rand2.Intn(5)-2), 40 + rand2.Intn(45), 3},
+		{startX + distanceX*0.85, startY + float64(rand2.Intn(3)-1), 50 + rand2.Intn(50), 3},
+		{endX, startY + yDrift + float64(rand2.Intn(3)-1), 30 + rand2.Intn(30), 2},
 	}
 
-	// 4) 執行軌跡（必須有 Mouse.Move，否則滑塊不會移動）
+	// 4) 執行軌跡（Steps 產生中間 mousemove 事件，避免瞬移被偵測）
 	for _, p := range trail {
-		page.Mouse().Move(p.x, p.y)
+		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &p.steps})
 		time.Sleep(time.Duration(p.delay) * time.Millisecond)
 	}
 
 	// 5) 鬆手
-	humanPause(50, 150)
+	humanPause(80, 200)
 	page.Mouse().Up()
 }
 
@@ -1014,9 +993,9 @@ func solveAnswerSlider(page playwright.Page) error {
 func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User, score *Score, scoreRetryTimes int) bool {
 	targetScore := 5 // 每日答題目標5分
 
-	// 等待積分同步和答題流程冷卻（短等待足以避免「多端同時作答」限制）
+	// 等待積分同步和答題流程冷卻
 	log.Infoln("[答題] 等待積分同步和答題流程冷卻...")
-	humanPause(2000, 4000) // 優化：2-4秒足以，減少CPU/RAM占用
+	humanPause(5000, 10000) // 5-10秒：平衡反偵測與性能（原 15-25s 過長，2-4s 過短）
 
 	// 獲取最新積分
 	latestScore, scoreErr := getUserScoreWithRetry(user, scoreRetryTimes)
@@ -1076,7 +1055,7 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 			strings.Contains(normalizedText, "不支持多端同时作答") ||
 			strings.Contains(normalizedText, "答题流程") {
 			log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
-			humanPause(3000, 5000) // 優化：3-5秒足以，避免長期goroutine堆積
+			humanPause(8000, 15000) // 8-15秒：需讓前一輪完全結束（原 20-30s 過長）
 
 			// 刷新頁面重試
 			page.Reload(playwright.PageReloadOptions{
@@ -1656,8 +1635,8 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 					return false
 				}
 
-				// 滑塊通過後，等待頁面狀態穩定
-				humanPause(600, 1000)
+				// 滑塊通過後，等待頁面狀態穩定（頁面轉換需 1-2 秒）
+				humanPause(1200, 2000)
 
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -1759,7 +1738,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 
 				log.Infoln("[答題] 提交後的滑塊驗證已通過，等待加載下一題")
-				humanPause(600, 1000)
+				humanPause(1200, 2000)
 				continue
 			}
 
