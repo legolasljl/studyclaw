@@ -3581,7 +3581,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			pageText := getAnswerPageText(page)
 			if containsAnswerFlowBlockedText(pageText) {
 				log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
-				humanPause(20000, 30000)
+				humanPause(8000, 15000)
 			}
 			log.Warningln("[答題] 系統判斷超時，嘗試刷新頁面")
 			// 刷新頁面重試
