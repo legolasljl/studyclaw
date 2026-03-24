@@ -960,35 +960,36 @@ func easeOutCubic(t float64) float64 {
 }
 
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
-	// 優化：移除複雜的軌跡模擬和多次 Mouse.Move 調用（導致事件堆積）
-	// Playwright dragTo 已足以通過反爬檢測，無需拟人化細節
+	distanceX := endX - startX
 
-	// 1) 簡單延遲
+	// 1) 移動到滑塊起點附近
 	humanPause(100, 200)
+	page.Mouse().Move(startX, startY)
 
-	// 2) 直接拖動（Playwright 原生方法）
+	// 2) 按下
 	page.Mouse().Down()
 	humanPause(50, 100)
 
-	// 3) 簡化軌跡：只生成 3-5 個中間點，而非 20+ 個
+	// 3) 簡化軌跡：5 個中間點（原版 20+ 個，保留必要的移動事件）
 	type point struct {
 		x, y  float64
 		delay int
 	}
-	var trail []point
-	distanceX := endX - startX
+	trail := []point{
+		{startX + distanceX*0.15, startY + float64(rand2.Intn(3)-1), 15 + rand2.Intn(20)},
+		{startX + distanceX*0.35, startY + float64(rand2.Intn(3)-1), 15 + rand2.Intn(20)},
+		{startX + distanceX*0.55, startY + float64(rand2.Intn(5)-2), 20 + rand2.Intn(30)},
+		{startX + distanceX*0.75, startY + float64(rand2.Intn(3)-1), 15 + rand2.Intn(20)},
+		{endX, startY + float64(rand2.Intn(3)-1), 10 + rand2.Intn(15)},
+	}
 
-	// 只生成 3 個中間點
-	trail = append(trail, point{startX + distanceX*0.3, startY + float64(rand2.Intn(3)-1), 10})
-	trail = append(trail, point{startX + distanceX*0.6, startY + float64(rand2.Intn(3)-1), 10})
-	trail = append(trail, point{endX, startY + float64(rand2.Intn(2)), 10})
-
-	// 4) 執行輕量軌跡（簡化：無 Mouse.Move 呼叫，避免事件堆積）
+	// 4) 執行軌跡（必須有 Mouse.Move，否則滑塊不會移動）
 	for _, p := range trail {
+		page.Mouse().Move(p.x, p.y)
 		time.Sleep(time.Duration(p.delay) * time.Millisecond)
 	}
 
-	// 5) 最終鬆手
+	// 5) 鬆手
 	humanPause(50, 150)
 	page.Mouse().Up()
 }
