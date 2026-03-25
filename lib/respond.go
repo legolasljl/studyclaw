@@ -1851,13 +1851,14 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			normalizedAnswer[normalized] = struct{}{}
 		}
 	}
-	log.Debugln("获取到", len(radios), "个按钮")
+	isMultiSelect := len(answer) > 1
+	log.Debugln("获取到", len(radios), "个按钮, 多選=", isMultiSelect)
 
 	// 快速閱讀題目
 	humanPause(400, 800)
 
 	// 嘗試找到匹配的答案
-	found := false
+	matchCount := 0
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
 		if err != nil {
@@ -1867,14 +1868,18 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			// 找到匹配的答案，點擊
 			if err := humanClick(radio); err == nil {
 				log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent))
-				found = true
-				break
+				matchCount++
+				// 單選題只需選一個；多選題繼續選其餘匹配項
+				if !isMultiSelect {
+					break
+				}
+				humanPause(200, 500)
 			}
 		}
 	}
 
 	// 如果沒找到匹配的答案，隨機選擇第一個選項
-	if !found {
+	if matchCount == 0 {
 		if err := humanClick(radios[0]); err == nil {
 			text, _ := radios[0].TextContent()
 			log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
