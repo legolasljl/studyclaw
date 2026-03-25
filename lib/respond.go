@@ -282,6 +282,47 @@ func getAnswerPageText(page playwright.Page) string {
 	return text
 }
 
+// getQuestionTextForComparison 獲取當前題目的文本，用於檢測頁面是否自動跳轉
+// 只返回題目的核心部分，排除選項和按鈕等變化內容
+func getQuestionTextForComparison(page playwright.Page) string {
+	result, err := page.Evaluate(`() => {
+		// 嘗試多種選擇器獲取題目文本
+		const selectors = [
+			'.question .q-body',
+			'.q-body',
+			'.question .q-header .title',
+			'.q-header .title'
+		];
+
+		for (const selector of selectors) {
+			const el = document.querySelector(selector);
+			if (el && el.innerText) {
+				// 只取前100個字符作為題目標識
+				const text = el.innerText.trim().slice(0, 100);
+				if (text) return text;
+			}
+		}
+
+		// 備選方案：獲取整個題目區域的文本
+		const questionEl = document.querySelector('.question');
+		if (questionEl && questionEl.innerText) {
+			// 移除選項部分，只保留題目
+			const lines = questionEl.innerText.split('\n').slice(0, 5);
+			return lines.join(' ').trim().slice(0, 100);
+		}
+
+		return '';
+	}`)
+	if err != nil {
+		return ""
+	}
+	text, ok := result.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
 func hasAnswerSliderDeepPrompt(page playwright.Page) bool {
 	if hasAnswerSliderExactPrompt(page) {
 		log.Infoln("[答題] 通過精確選擇器檢測到滑塊驗證")
@@ -3412,36 +3453,43 @@ func waitForAnswerAdvance(page playwright.Page, previousQuestionText string, but
 }
 
 // waitForSystemJudgment 等待系統判斷答案完成
-// 點擊「確定」後，系統需要時間判斷答案是否正確，此時「下一題」按鈕是灰色的
-// 需要等待「下一題」按鈕變為可點擊狀態
+// 流程說明：
+// 1. 點擊「確定」後，系統判斷答案
+// 2. 如果答對：系統自動跳轉到下一題（不需要額外點擊）
+// 3. 如果答錯：出現「下一題」按鈕，需要手動點擊
+// 此函數檢測：
+// - 頁面是否自動跳轉（答對）
+// - 是否出現可點擊的「下一題」按鈕（答錯）
+// - 是否到達結果頁
 func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
+
+	// 記錄初始題目文本，用於檢測頁面是否自動跳轉
+	initialQuestionText := getQuestionTextForComparison(page)
+
 	nextButtonSelectors := []string{
 		`#app .action-row > button`,
 		`#app .action-row [role="button"]`,
-		`#app .action-row > div`,
 		`.action-row button`,
 		`.action-row [role="button"]`,
 	}
 	nextKeywords := []string{"下一题", "继续答题", "完成"}
 	checkCount := 0
-	loggedButtons := false
-	lastConfirmDisabled := true
 
 	for time.Now().Before(deadline) {
 		checkCount++
-		shouldDeepScan := checkCount == 1 || checkCount%3 == 0
 
-		// 優先做低成本 selector 檢查，避免在緊密輪詢中反覆抽取全文文本
+		// 1. 檢測滑塊驗證
 		if hasAnswerSliderExactPrompt(page) {
 			log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
 			return false
 		}
 
-		if shouldDeepScan {
+		// 2. 檢測是否到達結果頁
+		if checkCount%3 == 1 {
 			pageText := getAnswerPageText(page)
 			if isAnswerCompletionText(pageText) {
-				log.Infoln("[答題] 系統判斷完成，已到達結果頁")
+				log.Infoln("[答題] 系統判斷完成，已到達結果頁 (檢測次數:", checkCount, ")")
 				return true
 			}
 			if containsAnswerSliderSpecificText(pageText) ||
@@ -3451,42 +3499,24 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			}
 		}
 
-		// 第一次檢測時，打印頁面狀態（用於調試）
-		if checkCount == 1 {
-			errorText, _ := page.Evaluate(`() => {
-				const errorEl = document.querySelector('.error, .ant-message, .ant-alert, [class*="error"], [class*="loading"]');
-				return errorEl ? errorEl.textContent : '';
-			}`)
-			if errText, ok := errorText.(string); ok && errText != "" {
-				log.Infoln("[答題] 調試：檢測到提示信息: ", errText)
-			}
+		// 3. 檢測題目是否自動變化（答對的情況）
+		currentQuestionText := getQuestionTextForComparison(page)
+		if currentQuestionText != "" && initialQuestionText != "" && currentQuestionText != initialQuestionText {
+			log.Infoln("[答題] 檢測到題目已自動變化，答題正確 (檢測次數:", checkCount, ")")
+			return true
 		}
 
-		// 檢測「下一題」按鈕是否可點擊
-		for selectorIdx, selector := range nextButtonSelectors {
+		// 4. 檢測「下一題」按鈕是否出現且可點擊（答錯的情況）
+		for _, selector := range nextButtonSelectors {
 			btns, err := page.QuerySelectorAll(selector)
 			if err != nil || len(btns) == 0 {
 				continue
 			}
 
-			// 前幾次檢測時，打印所有選擇器的按鈕信息（用於調試）
-			if !loggedButtons && checkCount <= 3 && selectorIdx < 3 {
-				log.Debugln("[答題] 調試：選擇器[", selectorIdx, "] ", selector, " 找到 ", len(btns), " 個按鈕")
-				for i, btn := range btns {
-					text, _ := btn.TextContent()
-					text = strings.TrimSpace(text)
-					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-					disabled, _ := isDisabled.(bool)
-					log.Debugln("[答題] 調試：按鈕[", i, "] 文本='", text, "' 禁用=", disabled)
-				}
-				if selectorIdx == 2 {
-					loggedButtons = true
-				}
-			}
-
 			for _, btn := range btns {
 				text, _ := btn.TextContent()
 				text = strings.TrimSpace(strings.ReplaceAll(text, " ", ""))
+
 				// 檢查是否是「下一題」按鈕
 				isNextButton := false
 				for _, keyword := range nextKeywords {
@@ -3498,75 +3528,34 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 				if !isNextButton {
 					continue
 				}
-				// 檢查按鈕是否可點擊（不是灰色/禁用狀態）
+
+				// 檢查按鈕是否可點擊
 				isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 				disabled, _ := isDisabled.(bool)
 				if !disabled {
-					// 額外檢查：按鈕是否可見且可交互
 					isVisible, _ := btn.Evaluate(`el => {
 						const rect = el.getBoundingClientRect();
 						const style = window.getComputedStyle(el);
 						return style.display !== 'none' &&
 							style.visibility !== 'hidden' &&
 							rect.width > 0 &&
-							rect.height > 0 &&
-							!el.hasAttribute('disabled');
+							rect.height > 0;
 					}`)
 					visible, _ := isVisible.(bool)
 					if visible {
-						// 「完成」按鈕就緒時，CAPTCHA JS 可能尚未加載完成
-						// 額外等待並再次檢查滑塊驗證，避免競態條件
-						if strings.Contains(text, "完成") {
-							log.Infoln("[答題] 「完成」按鈕已可點擊，等待確認是否有滑塊驗證...")
-							humanPause(600, 1000)
-							if hasAnswerSliderPrompt(page) {
-								log.Infoln("[答題] 等待後檢測到滑塊驗證")
-								return false
-							}
-						}
-						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊 (檢測次數:", checkCount, ")")
+						log.Infoln("[答題] 檢測到可點擊的「", text, "」按鈕，答題錯誤 (檢測次數:", checkCount, ")")
 						return true
-					} else {
-						log.Debugln("[答題] 按鈕「", text, "」未通過可見性檢查")
 					}
-				} else {
-					log.Debugln("[答題] 按鈕「", text, "」被禁用")
 				}
 			}
 		}
 
-		// 每3次檢測打印一次狀態，並檢查「確定」按鈕狀態
-		if checkCount%3 == 0 {
+		// 每5次檢測打印一次調試信息
+		if checkCount%5 == 0 {
 			log.Debugln("[答題] 等待系統判斷中... (檢測次數:", checkCount, ")")
-			// 檢查「確定」按鈕是否變為非禁用狀態（表示判斷完成但按鈕文本沒變）
-			confirmBtns, _ := page.QuerySelectorAll(`#app .action-row > button`)
-			for _, btn := range confirmBtns {
-				text, _ := btn.TextContent()
-				text = strings.TrimSpace(text)
-				if text == "确定" || text == "確定" {
-					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-					disabled, _ := isDisabled.(bool)
-
-					// 如果按鈕從禁用變為可用，說明判斷完成
-					if lastConfirmDisabled && !disabled {
-						log.Infoln("[答題] 「確定」按鈕已從禁用變為可用，判斷完成 (檢測次數:", checkCount, ")")
-						return true
-					}
-
-					// 如果按鈕變為可用，嘗試重新點擊
-					if !disabled {
-						log.Warningln("[答題] 「確定」按鈕已恢復可點擊狀態，嘗試重新點擊 (檢測次數:", checkCount, ")")
-						humanClick(btn)
-						humanPause(500, 1000)
-					}
-
-					lastConfirmDisabled = disabled
-					break
-				}
-			}
 		}
 
-		humanPause(650, 1050)
+		humanPause(700, 1100)
 	}
 
 	log.Warningln("[答題] 等待系統判斷超時 (檢測次數:", checkCount, ")")
