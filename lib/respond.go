@@ -3304,8 +3304,16 @@ func waitForAnswerAdvance(page playwright.Page, previousQuestionText string, but
 // waitForSystemJudgment 等待系統判斷答案完成
 // 點擊「確定」後，系統需要時間判斷答案是否正確，此時「下一題」按鈕是灰色的
 // 需要等待「下一題」按鈕變為可點擊狀態
-func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
+func waitForSystemJudgment(page playwright.Page, timeout time.Duration, previousQuestionText ...string) bool {
 	deadline := time.Now().Add(timeout)
+
+	// 答對時頁面會自動跳轉到下一題（不出現「下一題」按鈕），
+	// 因此需要偵測題目文字變化作為判斷完成的信號
+	var previousKey string
+	if len(previousQuestionText) > 0 {
+		previousKey = normalizeAnswerQuestionKey(previousQuestionText[0])
+	}
+
 	nextButtonSelectors := []string{
 		`#app .action-row > button`,
 		`#app .action-row [role="button"]`,
@@ -3347,6 +3355,16 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 			}`)
 			if errText, ok := errorText.(string); ok && errText != "" {
 				log.Infoln("[答題] 調試：檢測到提示信息: ", errText)
+			}
+		}
+
+		// 答對時頁面自動跳轉：偵測題目文字是否已變化
+		if previousKey != "" {
+			currentText := currentAnswerQuestionText(page)
+			currentKey := normalizeAnswerQuestionKey(currentText)
+			if currentKey != "" && currentKey != previousKey {
+				log.Infoln("[答題] 系統判斷完成，頁面已自動跳轉到下一題 (檢測次數:", checkCount, ")")
+				return true
 			}
 		}
 
@@ -3547,7 +3565,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		}
 
 		// 等待系統判斷完成（最多等待15秒，加快速度）
-		if !waitForSystemJudgment(page, 15*time.Second) {
+		if !waitForSystemJudgment(page, 15*time.Second, previousQuestionText) {
 			// 可能是滑塊或其他問題
 			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
