@@ -3750,41 +3750,53 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 快速確認
 		humanPause(200, 500)
 
-		// 混合方案：先嘗試帶軌跡的擬人化點擊
+		// 對於「確定/提交」按鈕，先用 JavaScript 點擊確保可靠性
+		// 因為這是最關鍵的操作，選項已選好，必須確保提交成功
 		clicked := false
-		if !disabled {
+
+		// 第一優先：JavaScript 點擊（最可靠）
+		clickResult, _ := btn.Evaluate(`el => {
+			// 確保按鈕可點擊
+			if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
+				return { success: false, reason: 'disabled' };
+			}
+			// 觸發完整的點擊事件序列
+			el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+			el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+			el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+			return { success: true, method: 'js_events' };
+		}`)
+		if res, ok := clickResult.(map[string]interface{}); ok {
+			if success, ok := res["success"].(bool); ok && success {
+				clicked = true
+				log.Infoln("[下一題] JS事件點擊按鈕：", btnText)
+			}
+		}
+
+		// 第二優先：如果 JS 點擊失敗，嘗試擬人化點擊
+		if !clicked && !disabled {
 			if err := humanClickWithTrajectory(btn); err == nil {
 				clicked = true
 				log.Infoln("[下一題] 擬人化點擊按鈕：", btnText)
 			}
 		}
 
-		// 如果擬人化點擊失敗或按鈕被禁用，使用 JavaScript 點擊作為後備
+		// 第三優先：普通的 humanClick
 		if !clicked {
-			clickResult, _ := btn.Evaluate(`el => {
-				// 確保按鈕可點擊
-				if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
-					return { success: false, reason: 'disabled' };
-				}
-				// 觸發點擊事件
-				el.click();
-				return { success: true };
-			}`)
-			if res, ok := clickResult.(map[string]interface{}); ok {
-				if success, ok := res["success"].(bool); ok && success {
-					clicked = true
-					log.Infoln("[下一題] JS點擊按鈕：", btnText)
-				}
-			}
-		}
-
-		if !clicked {
-			// 最後嘗試普通 humanClick
 			if err := humanClick(btn); err != nil {
 				lastErr = err
 				continue
 			}
 			log.Infoln("[下一題] 已點擊按鈕：", btnText)
+		}
+
+		// 驗證按鈕是否變成禁用（表示點擊已生效）
+		humanPause(300, 500)
+		isNowDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+		if nowDisabled, ok := isNowDisabled.(bool); ok && nowDisabled {
+			log.Infoln("[下一題] 按鈕已變為禁用狀態，點擊生效")
+		} else {
+			log.Warningln("[下一題] 按鈕未變為禁用，可能需要重新點擊")
 		}
 
 		// 點擊「確定」後，等待系統判斷完成
