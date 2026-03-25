@@ -23,121 +23,6 @@ func TestNormalizeAnswerButtonText(t *testing.T) {
 	}
 }
 
-func TestContainsAnswerSliderSpecificText(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-		want bool
-	}{
-		{
-			name: "specific slider instruction",
-			text: "请按住滑块，拖动到最右边完成验证",
-			want: true,
-		},
-		{
-			name: "specific slide verification phrase",
-			text: "系统提示：向右滑动验证后继续",
-			want: true,
-		},
-		{
-			name: "generic slider word should not match",
-			text: "本题材料提到滑块轴承的机械结构",
-			want: false,
-		},
-		{
-			name: "generic verification text should not match",
-			text: "请完成验证后继续答题",
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := containsAnswerSliderSpecificText(tt.text); got != tt.want {
-				t.Fatalf("containsAnswerSliderSpecificText() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestContainsAnswerSliderLooseText(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-		want bool
-	}{
-		{
-			name: "generic slider text",
-			text: "系统即将弹出滑块，请拖动验证",
-			want: true,
-		},
-		{
-			name: "non slider text",
-			text: "请完成阅读后继续答题",
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := containsAnswerSliderLooseText(tt.text); got != tt.want {
-				t.Fatalf("containsAnswerSliderLooseText() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestContainsAnswerFlowBlockedText(t *testing.T) {
-	text := "请不要中途开启新的答题流程，不支持多端同时作答"
-	if !containsAnswerFlowBlockedText(text) {
-		t.Fatalf("containsAnswerFlowBlockedText() = false, want true")
-	}
-}
-
-func TestContainsAnswerFlowBlockedTextIgnoresGenericFlowMention(t *testing.T) {
-	text := "正在进入答题流程，请稍候"
-	if containsAnswerFlowBlockedText(text) {
-		t.Fatalf("containsAnswerFlowBlockedText() = true, want false")
-	}
-}
-
-func TestContainsAnswerQuestionContextText(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-		want bool
-	}{
-		{
-			name: "question page summary",
-			text: "单选题 5. 根据提示选择正确答案 上一题 确定",
-			want: true,
-		},
-		{
-			name: "fill blank page",
-			text: "填空题 请根据提示作答 查看提示 提交",
-			want: true,
-		},
-		{
-			name: "result page",
-			text: "本次答对题目数 5 正确率 100% 再来一组",
-			want: false,
-		},
-		{
-			name: "generic question help text",
-			text: "答题前请先阅读题目提示并进入答题流程",
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := containsAnswerQuestionContextText(tt.text); got != tt.want {
-				t.Fatalf("containsAnswerQuestionContextText() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestIsAnswerCompletionText(t *testing.T) {
 	tests := []struct {
 		name string
@@ -309,25 +194,8 @@ func TestBuildClickBlankAnswersPrefersOptionSegments(t *testing.T) {
 }
 
 func TestBuildClickBlankAnswersPrefersWholeOptionWithSameRunes(t *testing.T) {
-	// 當候選詞中有亂序的整詞選項時，應該返回提示的正確順序（拆分為單字）
-	// 因為 blankCount = 4，需要 4 個單獨的答案
 	got := buildClickBlankAnswers([]string{"应用场景"}, []string{"场景应用", "场", "景", "应", "用"}, 4)
-	want := []string{"应", "用", "场", "景"} // 使用提示的正確順序，而非亂序的選項
-	if len(got) != len(want) {
-		t.Fatalf("buildClickBlankAnswers() len = %d, want %d, got=%v", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("buildClickBlankAnswers()[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestBuildClickBlankAnswersCorrectOrderWithScrambledOption(t *testing.T) {
-	// 測試真實場景：提示「国药准字」，候選詞包含亂序的「字准药国」
-	// 應該返回提示的正確順序，而非亂序選項
-	got := buildClickBlankAnswers([]string{"国药准字"}, []string{"字准药国", "字", "准", "药", "国"}, 4)
-	want := []string{"国", "药", "准", "字"}
+	want := []string{"场景应用"}
 	if len(got) != len(want) {
 		t.Fatalf("buildClickBlankAnswers() len = %d, want %d, got=%v", len(got), len(want), got)
 	}

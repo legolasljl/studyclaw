@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	MyPointsUri      = "https://pc.xuexi.cn/points/my-points.html"
-	DailyPracticeUri = "https://pc.xuexi.cn/points/exam-practice.html"
+	MyPointsUri       = "https://pc.xuexi.cn/points/my-points.html"
+	DailyPracticeUri  = "https://pc.xuexi.cn/points/exam-practice.html"
 
 	DailyBUTTON   = `#app > div > div.layout-body > div > div.my-points-section > div.my-points-content > div:nth-child(4) > div.my-points-card-footer > div.buttonbox > div`
 	WEEKEND       = `#app > div > div.layout-body > div > div.my-points-section > div.my-points-content > div:nth-child(7) > div.my-points-card-footer > div.buttonbox > div`
@@ -44,59 +44,22 @@ var (
 		`.detail-body .question .q-header`,
 		`.question .q-header`,
 	}
-	answerQuestionBodySelectors = []string{
-		`#app .detail-body .question .q-body`,
-		`.detail-body .question .q-body`,
-		`.question .q-body`,
-	}
-	answerQuestionInteractiveSelectors = []string{
-		`#app .detail-body .q-answer.choosable`,
-		`.detail-body .q-answer.choosable`,
-		`.q-answer.choosable`,
-		`#app .detail-body .q-body input`,
-		`.detail-body .q-body input`,
-		`.q-body input`,
-		`#app .detail-body .q-body textarea`,
-		`.detail-body .q-body textarea`,
-		`.q-body textarea`,
-		`#app .detail-body .q-body [contenteditable="true"]`,
-		`.detail-body .q-body [contenteditable="true"]`,
-		`.q-body [contenteditable="true"]`,
-		`#app .detail-body .q-body [contenteditable="plaintext-only"]`,
-		`.detail-body .q-body [contenteditable="plaintext-only"]`,
-		`.q-body [contenteditable="plaintext-only"]`,
-		`#app .detail-body .q-body [contenteditable]`,
-		`.detail-body .q-body [contenteditable]`,
-		`.q-body [contenteditable]`,
-		`#app .detail-body .q-body .click-box`,
-		`.detail-body .q-body .click-box`,
-		`.q-body .click-box`,
-		`#app .detail-body .question .q-footer`,
-		`.detail-body .question .q-footer`,
-		`.question .q-footer`,
-	}
-	answerSliderExactSelectors = []string{
+	answerSliderSelectors = []string{
 		`#nc_mask > div`,
 		`#nc_1_wrapper`,
 		`.nc-container`,
 		`[id^="nc_"][id$="_wrapper"]`,
-		`.nc_wrapper`,
-		`.nc_mask`,
-		`#JS_aliyun-captcha-slider_bind_element`,
-		`.JS_aliyun-captcha-slider_bind_element`,
-		`[id*="aliyun-captcha"]`,
-		`[class*="aliyun-captcha"]`,
-		`[class*="captcha"][class*="slider"]`,
-		`[class*="verify"][class*="slider"]`,
-		`[id*="captcha"][id*="slider"]`,
-	}
-	answerSliderFallbackSelectors = []string{
+		// 新增更多滑塊選擇器
+		`[class*="slider"]`,
 		`[class*="drag-verify"]`,
 		`[class*="slide-verify"]`,
 		`.slidercontainer`,
 		`.slide-verify`,
 		`.drag_verify`,
+		`[id*="slider"]`,
 		`[class*="captcha-slider"]`,
+		`.nc_wrapper`,
+		`.nc_mask`,
 	}
 )
 
@@ -119,8 +82,35 @@ func humanPause(minMs int, maxMs int) {
 	time.Sleep(randomDurationBetween(minMs, maxMs))
 }
 
-// simulateHumanBehavior 已移除 — 原為死代碼（定義但從未被呼叫），
-// 且包含 Mouse.Move+Steps 會在並發場景下產生性能問題。
+// simulateHumanBehavior 模擬人類在頁面上的自然行為（鼠標移動、滾動等）
+func simulateHumanBehavior(page playwright.Page) {
+	// 隨機頁面滾動
+	scrollDirection := rand2.Intn(3)
+	scrollAmount := rand2.Intn(150) + 50
+	var scrollY int
+	switch scrollDirection {
+	case 0: // 向下滾動
+		scrollY = scrollAmount
+	case 1: // 向上滾動
+		scrollY = -scrollAmount
+	default: // 不滾動
+		scrollY = 0
+	}
+	if scrollY != 0 {
+		_, _ = page.Evaluate(fmt.Sprintf(`() => window.scrollBy(0, %d)`, scrollY))
+		humanPause(300, 800)
+	}
+
+	// 隨機鼠標移動到頁面不同位置（使用 Playwright 原生方法，產生 isTrusted: true 事件）
+	mouseX := float64(rand2.Intn(800) + 100)
+	mouseY := float64(rand2.Intn(500) + 100)
+	steps := rand2.Intn(5) + 3
+	page.Mouse().Move(mouseX, mouseY, playwright.MouseMoveOptions{
+		Steps: &steps,
+	})
+
+	humanPause(200, 500)
+}
 
 func hasVisibleSelector(page playwright.Page, selectors []string) bool {
 	for _, selector := range selectors {
@@ -152,204 +142,35 @@ func waitForVisibleSelector(page playwright.Page, selectors []string, attempts i
 }
 
 func hasAnswerQuestion(page playwright.Page) bool {
-	if hasVisibleSelector(page, answerQuestionSelectors) {
-		return true
-	}
-	if !hasVisibleSelector(page, answerQuestionBodySelectors) {
-		return false
-	}
-	return hasVisibleSelector(page, answerQuestionInteractiveSelectors)
-}
-
-func hasAnswerSliderExactPrompt(page playwright.Page) bool {
-	return hasVisibleSelector(page, answerSliderExactSelectors)
-}
-
-func hasPotentialAnswerSliderElement(page playwright.Page) bool {
-	result, err := page.Evaluate(`() => {
-		const targetSelector = '[id*="captcha"], [id*="slider"], [id*="nc_"], [id*="drag"], [id*="slide"], [class*="captcha"], [class*="slider"], [class*="nc_"], [class*="slide"], [class*="drag"]';
-		const elements = document.querySelectorAll(targetSelector);
-		for (const el of elements) {
-			const rect = el.getBoundingClientRect();
-			if (rect.width <= 0 || rect.height <= 0) continue;
-			const style = window.getComputedStyle(el);
-			if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
-			return true;
-		}
-		return false;
-	}`)
-	if err != nil {
-		return false
-	}
-	ok, _ := result.(bool)
-	return ok
-}
-
-func containsAnswerSliderSpecificText(text string) bool {
-	normalized := normalizeAnswerButtonText(text)
-	if normalized == "" {
-		return false
-	}
-	phrases := []string{
-		"请按住滑块",
-		"拖动到最右边",
-		"向右滑动验证",
-		"滑块验证",
-		"滑块校验",
-	}
-	for _, phrase := range phrases {
-		if strings.Contains(normalized, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAnswerSliderLooseText(text string) bool {
-	normalized := normalizeAnswerButtonText(text)
-	if normalized == "" {
-		return false
-	}
-	return strings.Contains(normalized, "滑块") ||
-		strings.Contains(normalized, "滑动验证") ||
-		strings.Contains(normalized, "拖动验证") ||
-		strings.Contains(normalized, "请拖动") ||
-		strings.Contains(normalized, "按住滑动")
-}
-
-func containsAnswerSliderContextText(text string) bool {
-	normalized := normalizeAnswerButtonText(text)
-	if normalized == "" {
-		return false
-	}
-	contextKeywords := []string{
-		"请按住",
-		"拖动到最右边",
-		"向右滑动",
-		"安全验证",
-		"完成验证",
-		"验证码",
-		"校验",
-	}
-	for _, keyword := range contextKeywords {
-		if strings.Contains(normalized, keyword) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAnswerQuestionContextText(text string) bool {
-	normalized := normalizeAnswerButtonText(text)
-	if normalized == "" {
-		return false
-	}
-	hasQuestionType := strings.Contains(normalized, "单选题") ||
-		strings.Contains(normalized, "多选题") ||
-		strings.Contains(normalized, "填空题")
-	if !hasQuestionType {
-		return false
-	}
-	return strings.Contains(normalized, "上一题") ||
-		strings.Contains(normalized, "确定") ||
-		strings.Contains(normalized, "提交") ||
-		strings.Contains(normalized, "查看提示") ||
-		strings.Contains(normalized, "提示")
-}
-
-func containsAnswerFlowBlockedText(text string) bool {
-	normalized := normalizeAnswerButtonText(text)
-	if normalized == "" {
-		return false
-	}
-	return strings.Contains(normalized, "请不要中途开启新的答题流程") ||
-		strings.Contains(normalized, "不支持多端同时作答") ||
-		(strings.Contains(normalized, "答题流程") &&
-			(strings.Contains(normalized, "中途开启") ||
-				strings.Contains(normalized, "多端") ||
-				strings.Contains(normalized, "同时作答")))
-}
-
-func getAnswerPageText(page playwright.Page) string {
-	result, err := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
-	if err != nil {
-		return ""
-	}
-	text, ok := result.(string)
-	if !ok {
-		return ""
-	}
-	return text
-}
-
-// getQuestionTextForComparison 獲取當前題目的文本，用於檢測頁面是否自動跳轉
-// 只返回題目的核心部分，排除選項和按鈕等變化內容
-func getQuestionTextForComparison(page playwright.Page) string {
-	result, err := page.Evaluate(`() => {
-		// 嘗試多種選擇器獲取題目文本
-		const selectors = [
-			'.question .q-body',
-			'.q-body',
-			'.question .q-header .title',
-			'.q-header .title'
-		];
-
-		for (const selector of selectors) {
-			const el = document.querySelector(selector);
-			if (el && el.innerText) {
-				// 只取前100個字符作為題目標識
-				const text = el.innerText.trim().slice(0, 100);
-				if (text) return text;
-			}
-		}
-
-		// 備選方案：獲取整個題目區域的文本
-		const questionEl = document.querySelector('.question');
-		if (questionEl && questionEl.innerText) {
-			// 移除選項部分，只保留題目
-			const lines = questionEl.innerText.split('\n').slice(0, 5);
-			return lines.join(' ').trim().slice(0, 100);
-		}
-
-		return '';
-	}`)
-	if err != nil {
-		return ""
-	}
-	text, ok := result.(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(text)
-}
-
-func hasAnswerSliderDeepPrompt(page playwright.Page) bool {
-	if hasAnswerSliderExactPrompt(page) {
-		log.Infoln("[答題] 通過精確選擇器檢測到滑塊驗證")
-		return true
-	}
-
-	text := getAnswerPageText(page)
-	if containsAnswerSliderSpecificText(text) {
-		log.Infoln("[答題] 通過滑塊文本檢測到驗證提示")
-		return true
-	}
-
-	if containsAnswerSliderContextText(text) && hasVisibleSelector(page, answerSliderFallbackSelectors) {
-		log.Infoln("[答題] 通過備援選擇器檢測到滑塊驗證")
-		return true
-	}
-
-	if containsAnswerSliderLooseText(text) && hasPotentialAnswerSliderElement(page) {
-		log.Infoln("[答題] 通過深度檢查檢測到滑塊驗證")
-		return true
-	}
-
-	return false
+	return hasVisibleSelector(page, answerQuestionSelectors)
 }
 
 func hasAnswerSliderPrompt(page playwright.Page) bool {
-	return hasAnswerSliderDeepPrompt(page)
+	// 首先嘗試選擇器檢測
+	if hasVisibleSelector(page, answerSliderSelectors) {
+		log.Infoln("[答題] 通過選擇器檢測到滑塊驗證")
+		return true
+	}
+
+	// 檢測頁面文本中的滑塊提示
+	result, err := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
+	if err != nil {
+		return false
+	}
+	text, ok := result.(string)
+	if !ok {
+		return false
+	}
+	normalized := normalizeAnswerButtonText(text)
+	if strings.Contains(normalized, "请按住滑块") ||
+		strings.Contains(normalized, "拖动到最右边") ||
+		strings.Contains(normalized, "向右滑动验证") ||
+		strings.Contains(normalized, "滑块") {
+		log.Infoln("[答題] 通過文本檢測到滑塊驗證提示")
+		return true
+	}
+
+	return false
 }
 
 // detectAndLogSliderElements 檢測並打印頁面上所有可能的滑塊元素（用於調試）
@@ -393,7 +214,6 @@ func isAnswerCompletionText(text string) bool {
 	}
 
 	// 檢測答題完成的常見關鍵詞
-	// 注意：「答案解析」在答錯時就會出現，不能作為結果頁標誌
 	completionKeywords := []string{
 		"本次答对题目数",
 		"再来一组",
@@ -454,7 +274,7 @@ func waitForAnswerSliderDismiss(page playwright.Page, timeout time.Duration) boo
 		if time.Now().After(deadline) {
 			return false
 		}
-		humanPause(500, 1000)
+		humanPause(1500, 2300)
 	}
 }
 
@@ -493,7 +313,7 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 		}
 
 		log.Warningln("[答題] 滑塊驗證未通過（嘗試", attempt, "），等待滑塊重置後重試...")
-		// 失敗後阿里雲滑塊會重置動畫（~1-1.5s），必須等動畫完成才能重試
+		// 失敗後阿里雲滑塊會重置動畫，等待重置完成
 		humanPause(1500, 2500)
 	}
 
@@ -598,40 +418,11 @@ func openAnswerSection(page playwright.Page, modelName string) error {
 	return fmt.Errorf("未找到%s入口", sectionName)
 }
 
-func openDailyPracticePage(page playwright.Page, referer string) error {
-	if strings.TrimSpace(referer) == "" {
-		referer = MyPointsUri
-	}
-	_, err := page.Goto(DailyPracticeUri, playwright.PageGotoOptions{
-		Referer:   playwright.String(referer),
-		Timeout:   playwright.Float(15000),
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-	})
-	if err != nil {
-		return err
-	}
-	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 300, 700)
-	humanPause(800, 1400)
-	return nil
-}
-
 func ensureAnswerQuestionReady(page playwright.Page) error {
 	if hasAnswerQuestion(page) {
 		return nil
 	}
-	if containsAnswerQuestionContextText(getAnswerPageText(page)) {
-		return nil
-	}
-	if waitForVisibleSelector(page, answerQuestionSelectors, 4, 300, 600) && hasAnswerQuestion(page) {
-		return nil
-	}
-	if waitForVisibleSelector(page, answerQuestionBodySelectors, 4, 300, 600) && hasAnswerQuestion(page) {
-		return nil
-	}
-	if waitForVisibleSelector(page, answerQuestionInteractiveSelectors, 4, 300, 600) && hasAnswerQuestion(page) {
-		return nil
-	}
-	if containsAnswerQuestionContextText(getAnswerPageText(page)) {
+	if waitForVisibleSelector(page, answerQuestionSelectors, 8, 500, 900) {
 		return nil
 	}
 	return errors.New("答题页面未进入可作答状态")
@@ -641,21 +432,12 @@ func clickPreQuestionAction(page playwright.Page) error {
 	if hasAnswerQuestion(page) {
 		return nil
 	}
-	if containsAnswerQuestionContextText(getAnswerPageText(page)) {
-		return nil
-	}
 
 	buttonSelectors := []string{
 		`#app .detail-body .action-row button`,
 		`#app .detail-body .action-row [role="button"]`,
 		`.detail-body .action-row button`,
 		`.detail-body .action-row [role="button"]`,
-		`#app .detail-body button.ant-btn-primary`,
-		`.detail-body button.ant-btn-primary`,
-		`#app .detail-body button`,
-		`.detail-body button`,
-		`#app .detail-body [role="button"]`,
-		`.detail-body [role="button"]`,
 	}
 	keywords := []string{"开始答题", "继续答题", "重新开始", "再来一组", "确定", "提交"}
 
@@ -1073,41 +855,102 @@ func easeOutCubic(t float64) float64 {
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
 	distanceX := endX - startX
 
-	// 1) 移動到滑塊起點
-	humanPause(150, 300)
-	steps := rand2.Intn(3) + 3
-	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &steps})
+	// 1) 隨機移到滑塊附近區域，模擬找按鈕
+	moveSteps := rand2.Intn(6) + 5
+	page.Mouse().Move(startX-float64(rand2.Intn(30)+10), startY+float64(rand2.Intn(20)-10), playwright.MouseMoveOptions{Steps: &moveSteps})
+	humanPause(100, 300)
+	// 可能額外晃一下
+	if rand2.Intn(3) == 0 {
+		wobbleSteps := rand2.Intn(3) + 2
+		page.Mouse().Move(startX+float64(rand2.Intn(10)-5), startY-float64(rand2.Intn(8)+2), playwright.MouseMoveOptions{Steps: &wobbleSteps})
+		humanPause(50, 150)
+	}
+	approachSteps := rand2.Intn(4) + 3
+	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &approachSteps})
+	humanPause(150, 400)
 
-	// 2) 按下
+	// 2) 按下，真人按下前有微小延遲
 	page.Mouse().Down()
-	humanPause(80, 180)
+	humanPause(80, 200)
 
-	// 3) 簡化軌跡：7 個中間點（原版 20+ 個太重，5 個太少）
-	//    加速起步 → 穩速推進 → 減速到達，delay 合計 ~400-700ms（真人水準）
+	// 3) 生成人類風格的軌跡點
+	//    真人特徵：加速起步 → 中段有速度波動和微頓 → 減速 → 可能滑過 → 修正
 	type point struct {
 		x, y  float64
 		delay int
-		steps int
 	}
+	var trail []point
+
+	// 累積 Y 漂移（真人的手不會完美水平）
 	yDrift := float64(0)
-	trail := []point{
-		{startX + distanceX*0.10, startY + float64(rand2.Intn(3)-1), 20 + rand2.Intn(25), 3},
-		{startX + distanceX*0.25, startY + float64(rand2.Intn(3)-1), 25 + rand2.Intn(30), 3},
-		{startX + distanceX*0.40, startY + float64(rand2.Intn(5)-2), 35 + rand2.Intn(40), 4},
-		{startX + distanceX*0.55, startY + float64(rand2.Intn(3)-1), 35 + rand2.Intn(40), 4},
-		{startX + distanceX*0.70, startY + float64(rand2.Intn(5)-2), 40 + rand2.Intn(45), 3},
-		{startX + distanceX*0.85, startY + float64(rand2.Intn(3)-1), 50 + rand2.Intn(50), 3},
-		{endX, startY + yDrift + float64(rand2.Intn(3)-1), 30 + rand2.Intn(30), 2},
+	yDriftDir := float64(1)
+	if rand2.Intn(2) == 0 {
+		yDriftDir = -1
 	}
 
-	// 4) 執行軌跡（Steps 產生中間 mousemove 事件，避免瞬移被偵測）
+	// 階段一：快速加速（前 25-35%）
+	phase1End := 0.25 + float64(rand2.Intn(10))/100.0
+	phase1Steps := 5 + rand2.Intn(4)
+	for i := 1; i <= phase1Steps; i++ {
+		t := float64(i) / float64(phase1Steps) * phase1End
+		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
+		yDrift += yDriftDir * float64(rand2.Intn(3)) * 0.3
+		y := startY + yDrift + float64(rand2.Intn(3)-1)
+		trail = append(trail, point{x, y, 6 + rand2.Intn(18)})
+	}
+
+	// 階段二：中段推進（至 70-80%），速度有波動
+	phase2End := 0.70 + float64(rand2.Intn(10))/100.0
+	phase2Steps := 8 + rand2.Intn(6)
+	for i := 1; i <= phase2Steps; i++ {
+		t := phase1End + float64(i)/float64(phase2Steps)*(phase2End-phase1End)
+		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
+		yDrift += yDriftDir * float64(rand2.Intn(3)-1) * 0.2
+		y := startY + yDrift + float64(rand2.Intn(5)-2)
+		// 隨機微頓（真人會有小停頓）
+		delay := 12 + rand2.Intn(30)
+		if rand2.Intn(8) == 0 {
+			delay += 40 + rand2.Intn(80) // 偶爾一個較長停頓
+		}
+		trail = append(trail, point{x, y, delay})
+	}
+
+	// 階段三：減速接近終點（至 100%），可能微微滑過
+	overshoot := float64(rand2.Intn(10) + 2) // 滑過 2-11px
+	phase3Steps := 4 + rand2.Intn(4)
+	for i := 1; i <= phase3Steps; i++ {
+		t := phase2End + float64(i)/float64(phase3Steps)*(1.0-phase2End)
+		targetX := startX + distanceX*t
+		if i == phase3Steps {
+			targetX = endX + overshoot
+		}
+		yDrift += float64(rand2.Intn(3)-1) * 0.2
+		y := startY + yDrift + float64(rand2.Intn(3)-1)
+		trail = append(trail, point{targetX, y, 20 + rand2.Intn(45)})
+	}
+
+	// 階段四：回拉修正到正確位置
+	if overshoot > 0 {
+		humanPause(30, 100)
+		correctionSteps := 2 + rand2.Intn(2)
+		for i := 1; i <= correctionSteps; i++ {
+			x := endX + overshoot*(1-float64(i)/float64(correctionSteps)) + float64(rand2.Intn(2))
+			y := startY + yDrift + float64(rand2.Intn(3)-1)
+			trail = append(trail, point{x, y, 25 + rand2.Intn(50)})
+		}
+	}
+
+	// 4) 執行軌跡（每步加入中間點，增加 mousemove 事件密度）
 	for _, p := range trail {
-		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &p.steps})
+		trailSteps := rand2.Intn(3) + 2
+		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &trailSteps})
 		time.Sleep(time.Duration(p.delay) * time.Millisecond)
 	}
 
-	// 5) 鬆手
-	humanPause(80, 200)
+	// 5) 最終精確定位 + 短暫停留 + 鬆手
+	finalSteps := rand2.Intn(3) + 2
+	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
+	humanPause(100, 350)
 	page.Mouse().Up()
 }
 
@@ -1122,7 +965,7 @@ func solveAnswerSlider(page playwright.Page) error {
 	log.Infoln("[答題] 開始拖動滑塊...")
 
 	dragAnswerSlider(page, startX, startY, endX, endY)
-	humanPause(600, 1200)
+	humanPause(1500, 3000)
 	return nil
 }
 
@@ -1131,9 +974,9 @@ func solveAnswerSlider(page playwright.Page) error {
 func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User, score *Score, scoreRetryTimes int) bool {
 	targetScore := 5 // 每日答題目標5分
 
-	// 等待積分同步和答題流程冷卻
+	// 等待積分同步和答題流程冷卻（需要足夠長以避免「多端同時作答」限制）
 	log.Infoln("[答題] 等待積分同步和答題流程冷卻...")
-	humanPause(5000, 10000) // 5-10秒：平衡反偵測與性能（原 15-25s 過長，2-4s 過短）
+	humanPause(15000, 25000) // 等待15-25秒，避免觸發"多端同時作答"
 
 	// 獲取最新積分
 	latestScore, scoreErr := getUserScoreWithRetry(user, scoreRetryTimes)
@@ -1172,10 +1015,36 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 
 	// 直接跳轉到每日答題頁面 (exam-practice.html)
 	log.Infoln("[答題] 進入每日答題頁面...")
-	err = openDailyPracticePage(page, MyPointsUri)
+	_, err = page.Goto(DailyPracticeUri, playwright.PageGotoOptions{
+		Referer:   playwright.String(MyPointsUri),
+		Timeout:   playwright.Float(15000),
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	})
 	if err != nil {
 		log.Errorln("[答題] 跳轉答題頁面失敗: " + err.Error())
 		return false
+	}
+
+	humanPause(3000, 5000)
+
+	// 檢測是否有"不要中途開啟新的答題流程"的提示
+	pageText, _ := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
+	if text, ok := pageText.(string); ok {
+		normalizedText := strings.ReplaceAll(text, " ", "")
+		normalizedText = strings.ReplaceAll(normalizedText, "\n", "")
+		if strings.Contains(normalizedText, "请不要中途开启") ||
+			strings.Contains(normalizedText, "不支持多端同时作答") ||
+			strings.Contains(normalizedText, "答题流程") {
+			log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
+			humanPause(20000, 30000) // 等待20-30秒讓前一輪完全結束
+
+			// 刷新頁面重試
+			page.Reload(playwright.PageReloadOptions{
+				Timeout:   playwright.Float(15000),
+				WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			})
+			humanPause(3000, 5000)
+		}
 	}
 
 	// 等待答題頁面加載
@@ -1203,7 +1072,6 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 	var title string
 	retryTimes := 0
 	var id int
-	dailyDirectOpenTried := false
 
 	// 专项答题已取消，直接返回
 	if modelName == "special" {
@@ -1297,7 +1165,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 		return false
 	}
 	waitForVisibleSelector(page, []string{`#app .my-points-content`, `.my-points-content`, `#app .layout-body`}, 8, 300, 700)
-	humanPause(400, 800)
+	humanPause(1200, 2200)
 	log.Infoln("已加载答题模块")
 	// 判断答题类型，然后相应处理
 	switch modelName {
@@ -1312,12 +1180,9 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			// 点击每日答题的按钮
 			err = openAnswerSection(page, modelName)
 			if err != nil {
-				log.Warningln("[答題] 積分頁入口打開失敗，改用直達頁: " + err.Error())
-				if err = openDailyPracticePage(page, MyPointsUri); err != nil {
-					log.Errorln("跳转到答题页面错误" + err.Error())
-					return false
-				}
-				dailyDirectOpenTried = true
+				log.Errorln("跳转到积分页面错误" + err.Error())
+
+				return false
 			}
 			c.Push(user.PushId, "text", "已加载每日答题模块")
 		}
@@ -1375,24 +1240,12 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 	}
 	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 300, 600)
 	humanPause(800, 1400)
-	initialReadyErr := ensureAnswerQuestionReady(page)
-	if initialReadyErr != nil {
+	if err := ensureAnswerQuestionReady(page); err != nil {
 		if isAnswerRoundComplete(page) {
 			log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
 			return true
 		}
-		if modelName == "daily" && !dailyDirectOpenTried && !hasAnswerSliderPrompt(page) {
-			log.Warningln("[答題] 首次進入每日答題頁未就緒，嘗試直達頁重試")
-			if err := openDailyPracticePage(page, MyPointsUri); err != nil {
-				log.Warningln("[答題] 直達每日答題頁失敗: " + err.Error())
-			} else {
-				dailyDirectOpenTried = true
-				initialReadyErr = ensureAnswerQuestionReady(page)
-			}
-		}
-		if initialReadyErr != nil {
-			log.Debugln("[答題] 首次進入題目頁時尚未就緒: ", initialReadyErr.Error())
-		}
+		log.Debugln("[答題] 首次進入題目頁時尚未就緒: ", err.Error())
 	}
 	// 跳转到答题页面，若返回true则说明已答完
 	// if getAnswerPage(page, model) {
@@ -1433,7 +1286,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			if !c.handleAnswerSliderChallenge(page, user, authChecker, "答題頁面") {
 				return false
 			}
-			humanPause(600, 1000)
+			humanPause(1500, 2500)
 			goto label
 		}
 		if err := ensureAnswerQuestionReady(page); err != nil {
@@ -1572,7 +1425,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 						// 既没有继续按钮也没有选项，可能需要刷新页面
 						log.Infoln("[答错重试] 无法找到按钮或选项，尝试刷新页面")
 						page.Reload()
-						humanPause(600, 1000)
+						humanPause(1500, 2500)
 					}
 				}
 				continue
@@ -1763,8 +1616,8 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 					return false
 				}
 
-				// 滑塊通過後，等待頁面狀態穩定（頁面轉換需 1-2 秒）
-				humanPause(1200, 2000)
+				// 滑塊通過後，等待頁面狀態穩定
+				humanPause(1500, 2500)
 
 				if isAnswerRoundComplete(page) {
 					log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
@@ -1866,7 +1719,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 				}
 
 				log.Infoln("[答題] 提交後的滑塊驗證已通過，等待加載下一題")
-				humanPause(1200, 2000)
+				humanPause(1500, 2500)
 				continue
 			}
 
@@ -1924,7 +1777,7 @@ func GetAnswerPage(page playwright.Page, model string) bool {
 		if err1 != nil {
 			log.Errorln("点击页码失败")
 		}
-		humanPause(400, 800)
+		humanPause(1200, 2200)
 		datas, err := page.QuerySelectorAll(modelSlector)
 		if err != nil {
 			log.Errorln("获取页面内容失败")
@@ -1967,7 +1820,7 @@ func GetAnswerPage(page playwright.Page, model string) bool {
 				})
 				if err != nil {
 					log.Errorln("点击按钮失败" + err.Error())
-					humanPause(400, 800)
+					humanPause(1200, 2200)
 					continue
 				}
 				humanPause(1800, 3200)
@@ -2003,93 +1856,29 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	// 快速閱讀題目
 	humanPause(400, 800)
 
-	// 嘗試找到匹配的答案（多選題需要選擇所有匹配項）
-	// 注意：選項是 <div class="q-answer choosable">，選中後變成 <div class="q-answer chosen choosable">
-	// 沒有 input 元素，需要直接點擊 div 並檢測 chosen class
-	var found bool
+	// 嘗試找到匹配的答案
+	found := false
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
 		if err != nil {
 			continue
 		}
 		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
-			// 檢查是否已經選中
-			isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
-			if sel, ok := isSelected.(bool); ok && sel {
-				log.Infoln("[答題] 選項已選中：", strings.TrimSpace(textContent))
+			// 找到匹配的答案，點擊
+			if err := humanClick(radio); err == nil {
+				log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent))
 				found = true
-				continue
+				break
 			}
-
-			// 多種方式嘗試點擊，確保選中
-			clickSuccess := false
-
-			// 第一優先：Playwright 原生 Click（isTrusted=true）
-			if err := radio.Click(); err == nil {
-				humanPause(100, 200)
-				isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
-				if sel, ok := isSelected.(bool); ok && sel {
-					log.Infoln("[答題] 選擇匹配答案（原生Click）：", strings.TrimSpace(textContent))
-					clickSuccess = true
-					found = true
-				}
-			}
-
-			// 第二優先：JavaScript click()
-			if !clickSuccess {
-				radio.Evaluate(`el => {
-					const clickTarget = el.querySelector('[data-click="true"]') || el;
-					clickTarget.click();
-				}`)
-				humanPause(100, 200)
-				isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
-				if sel, ok := isSelected.(bool); ok && sel {
-					log.Infoln("[答題] 選擇匹配答案（JS點擊）：", strings.TrimSpace(textContent))
-					clickSuccess = true
-					found = true
-				}
-			}
-
-			// 第三優先：擬人化點擊
-			if !clickSuccess {
-				if err := humanClickWithTrajectory(radio); err == nil {
-					humanPause(100, 200)
-					isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
-					if sel, ok := isSelected.(bool); ok && sel {
-						log.Infoln("[答題] 選擇匹配答案（擬人化點擊）：", strings.TrimSpace(textContent))
-						clickSuccess = true
-						found = true
-					}
-				}
-			}
-
-			humanPause(200, 400)
 		}
 	}
-
-	// 驗證答案是否被選中（檢查 chosen class）
-	humanPause(200, 300)
-	selectedCount := 0
-	for _, radio := range radios {
-		isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
-		if sel, ok := isSelected.(bool); ok && sel {
-			selectedCount++
-		}
-	}
-	log.Infoln("[答題] 已確認 ", selectedCount, " 個選項被選中（chosen class）")
 
 	// 如果沒找到匹配的答案，隨機選擇第一個選項
 	if !found {
-		// 先嘗試擬人化點擊
-		if err := humanClickWithTrajectory(radios[0]); err != nil {
-			// 失敗則用 JavaScript
-			radios[0].Evaluate(`el => {
-				const clickTarget = el.querySelector('[data-click="true"]') || el;
-				clickTarget.click();
-			}`)
+		if err := humanClick(radios[0]); err == nil {
+			text, _ := radios[0].TextContent()
+			log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
 		}
-		text, _ := radios[0].TextContent()
-		log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
 	}
 
 	// 快速確認
@@ -2257,56 +2046,6 @@ func humanClick(el playwright.ElementHandle) error {
 	})
 }
 
-// humanClickWithTrajectory 帶鼠標軌跡模擬的點擊
-// 先移動到元素附近，再移動到目標位置，最後點擊
-func humanClickWithTrajectory(el playwright.ElementHandle) error {
-	box, err := el.BoundingBox()
-	if err != nil || box == nil || box.Width < 1 || box.Height < 1 {
-		return el.Click()
-	}
-
-	// 計算最終點擊位置（在元素中心區域隨機）
-	clickX := box.Width*0.2 + float64(rand2.Intn(maxInt(int(box.Width*0.6), 1)))
-	clickY := box.Height*0.2 + float64(rand2.Intn(maxInt(int(box.Height*0.6), 1)))
-
-	// 第一步：移動到元素附近（不是直接到元素上）
-	nearbyOffsetX := float64(rand2.Intn(80) - 40) // ±40px
-	nearbyOffsetY := float64(rand2.Intn(60) - 30) // ±30px
-	err = el.Hover(playwright.ElementHandleHoverOptions{
-		Timeout: playwright.Float(3000),
-		Position: &playwright.Position{
-			X: box.Width/2 + nearbyOffsetX,
-			Y: box.Height/2 + nearbyOffsetY,
-		},
-	})
-	if err != nil {
-		// Hover 失敗，直接嘗試點擊
-		return el.Click(playwright.ElementHandleClickOptions{
-			Position: &playwright.Position{X: clickX, Y: clickY},
-		})
-	}
-
-	// 短暫停頓，模擬猶豫（100-300ms）
-	humanPause(100, 300)
-
-	// 第二步：移動到最終點擊位置
-	err = el.Hover(playwright.ElementHandleHoverOptions{
-		Timeout:  playwright.Float(3000),
-		Position: &playwright.Position{X: clickX, Y: clickY},
-	})
-	if err != nil {
-		return el.Click(playwright.ElementHandleClickOptions{
-			Position: &playwright.Position{X: clickX, Y: clickY},
-		})
-	}
-
-	// 短暫停頓後點擊
-	humanPause(50, 150)
-	return el.Click(playwright.ElementHandleClickOptions{
-		Position: &playwright.Position{X: clickX, Y: clickY},
-	})
-}
-
 func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 	if handle == nil {
 		return errors.New("未找到可点击元素")
@@ -2339,7 +2078,7 @@ func clickAnswerActionHandle(handle playwright.ElementHandle) error {
 		clickX := box.Width*0.2 + float64(rand2.Intn(maxInt(int(box.Width*0.6), 1)))
 		clickY := box.Height*0.2 + float64(rand2.Intn(maxInt(int(box.Height*0.6), 1)))
 		_ = handle.Hover(playwright.ElementHandleHoverOptions{
-			Timeout:  playwright.Float(3000),
+			Timeout: playwright.Float(3000),
 			Position: &playwright.Position{X: clickX, Y: clickY},
 		})
 	} else {
@@ -2991,17 +2730,12 @@ func buildClickBlankAnswers(tips []string, options []string, blankCount int) []s
 			if candidateBag == "" {
 				continue
 			}
-			candidateRunes := splitAnswerToRunes(candidate)
-			// 如果候選答案的字符數等於空格數，優先使用候選答案的順序
-			if len(candidateRunes) == blankCount {
-				for _, option := range uniqueSelectableAnswerTexts(options) {
-					if utf8.RuneCountInString(option) <= 1 {
-						continue
-					}
-					// 用 option 驗證字符集是否匹配，但返回 candidate 的正確順序
-					if canonicalRuneBag(option) == candidateBag {
-						return candidateRunes
-					}
+			for _, option := range uniqueSelectableAnswerTexts(options) {
+				if utf8.RuneCountInString(option) <= 1 {
+					continue
+				}
+				if canonicalRuneBag(option) == candidateBag {
+					return []string{option}
 				}
 			}
 		}
@@ -3273,8 +3007,6 @@ func FillBlank(page playwright.Page, questionText string, tips []string) error {
 
 	// 尝试多种选择器获取输入框
 	inputSelectors := []string{
-		`input.blank`,
-		`input[class*="blank"]`,
 		`div.q-body > div > input`,
 		`input[type="text"]`,
 		`textarea`,
@@ -3570,70 +3302,79 @@ func waitForAnswerAdvance(page playwright.Page, previousQuestionText string, but
 }
 
 // waitForSystemJudgment 等待系統判斷答案完成
-// 流程說明：
-// 1. 點擊「確定」後，系統判斷答案
-// 2. 如果答對：系統自動跳轉到下一題（不需要額外點擊）
-// 3. 如果答錯：出現「下一題」按鈕，需要手動點擊
-// 此函數檢測：
-// - 頁面是否自動跳轉（答對）
-// - 是否出現可點擊的「下一題」按鈕（答錯）
-// - 是否到達結果頁
+// 點擊「確定」後，系統需要時間判斷答案是否正確，此時「下一題」按鈕是灰色的
+// 需要等待「下一題」按鈕變為可點擊狀態
 func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-
-	// 記錄初始題目文本，用於檢測頁面是否自動跳轉
-	initialQuestionText := getQuestionTextForComparison(page)
-
 	nextButtonSelectors := []string{
 		`#app .action-row > button`,
 		`#app .action-row [role="button"]`,
+		`#app .action-row > div`,
 		`.action-row button`,
 		`.action-row [role="button"]`,
+		`button.ant-btn`,
+		`.ant-btn`,
+		`button[class*="submit"]`,
+		`button[class*="next"]`,
+		`button`,
 	}
 	nextKeywords := []string{"下一题", "继续答题", "完成"}
 	checkCount := 0
+	loggedButtons := false
+	lastConfirmDisabled := true
 
 	for time.Now().Before(deadline) {
 		checkCount++
 
-		// 1. 檢測滑塊驗證
-		if hasAnswerSliderExactPrompt(page) {
+		// 檢測是否到達結果頁
+		if isAnswerRoundComplete(page) {
+			log.Infoln("[答題] 系統判斷完成，已到達結果頁")
+			return true
+		}
+
+		// 檢測是否有滑塊
+		if hasAnswerSliderPrompt(page) {
 			log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
 			return false
 		}
 
-		// 2. 檢測是否到達結果頁
-		if checkCount%3 == 1 {
-			pageText := getAnswerPageText(page)
-			if isAnswerCompletionText(pageText) {
-				log.Infoln("[答題] 系統判斷完成，已到達結果頁 (檢測次數:", checkCount, ")")
-				return true
-			}
-			if containsAnswerSliderSpecificText(pageText) ||
-				((containsAnswerSliderContextText(pageText) || containsAnswerSliderLooseText(pageText)) && hasPotentialAnswerSliderElement(page)) {
-				log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
-				return false
+		// 第一次檢測時，打印頁面狀態（用於調試）
+		if checkCount == 1 {
+			// 檢查是否有錯誤提示或加載狀態
+			errorText, _ := page.Evaluate(`() => {
+				const errorEl = document.querySelector('.error, .ant-message, .ant-alert, [class*="error"], [class*="loading"]');
+				return errorEl ? errorEl.textContent : '';
+			}`)
+			if errText, ok := errorText.(string); ok && errText != "" {
+				log.Infoln("[答題] 調試：檢測到提示信息: ", errText)
 			}
 		}
 
-		// 3. 檢測題目是否自動變化（答對的情況）
-		currentQuestionText := getQuestionTextForComparison(page)
-		if currentQuestionText != "" && initialQuestionText != "" && currentQuestionText != initialQuestionText {
-			log.Infoln("[答題] 檢測到題目已自動變化，答題正確 (檢測次數:", checkCount, ")")
-			return true
-		}
-
-		// 4. 檢測「下一題」按鈕是否出現且可點擊（答錯的情況）
-		for _, selector := range nextButtonSelectors {
+		// 檢測「下一題」按鈕是否可點擊
+		for selectorIdx, selector := range nextButtonSelectors {
 			btns, err := page.QuerySelectorAll(selector)
 			if err != nil || len(btns) == 0 {
 				continue
 			}
 
+			// 前幾次檢測時，打印所有選擇器的按鈕信息（用於調試）
+			if !loggedButtons && checkCount <= 3 && selectorIdx < 3 {
+				log.Infoln("[答題] 調試：選擇器[", selectorIdx, "] ", selector, " 找到 ", len(btns), " 個按鈕")
+				for i, btn := range btns {
+					text, _ := btn.TextContent()
+					text = strings.TrimSpace(text)
+					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+					disabled, _ := isDisabled.(bool)
+					log.Infoln("[答題] 調試：按鈕[", i, "] 文本='", text, "' 禁用=", disabled)
+				}
+				if selectorIdx == 2 {
+					loggedButtons = true
+				}
+			}
+
 			for _, btn := range btns {
 				text, _ := btn.TextContent()
 				text = strings.TrimSpace(strings.ReplaceAll(text, " ", ""))
-
 				// 檢查是否是「下一題」按鈕
 				isNextButton := false
 				for _, keyword := range nextKeywords {
@@ -3645,34 +3386,75 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 				if !isNextButton {
 					continue
 				}
-
-				// 檢查按鈕是否可點擊
+				// 檢查按鈕是否可點擊（不是灰色/禁用狀態）
 				isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 				disabled, _ := isDisabled.(bool)
 				if !disabled {
+					// 額外檢查：按鈕是否可見且可交互
 					isVisible, _ := btn.Evaluate(`el => {
 						const rect = el.getBoundingClientRect();
 						const style = window.getComputedStyle(el);
 						return style.display !== 'none' &&
 							style.visibility !== 'hidden' &&
 							rect.width > 0 &&
-							rect.height > 0;
+							rect.height > 0 &&
+							!el.hasAttribute('disabled');
 					}`)
 					visible, _ := isVisible.(bool)
 					if visible {
-						log.Infoln("[答題] 檢測到可點擊的「", text, "」按鈕，答題錯誤 (檢測次數:", checkCount, ")")
+						// 「完成」按鈕就緒時，CAPTCHA JS 可能尚未加載完成
+						// 額外等待並再次檢查滑塊驗證，避免競態條件
+						if strings.Contains(text, "完成") {
+							log.Infoln("[答題] 「完成」按鈕已可點擊，等待確認是否有滑塊驗證...")
+							humanPause(1500, 2500)
+							if hasAnswerSliderPrompt(page) {
+								log.Infoln("[答題] 等待後檢測到滑塊驗證")
+								return false
+							}
+						}
+						log.Infoln("[答題] 系統判斷完成，「", text, "」按鈕已可點擊 (檢測次數:", checkCount, ")")
 						return true
+					} else {
+						log.Debugln("[答題] 按鈕「", text, "」未通過可見性檢查")
 					}
+				} else {
+					log.Debugln("[答題] 按鈕「", text, "」被禁用")
 				}
 			}
 		}
 
-		// 每5次檢測打印一次調試信息
-		if checkCount%5 == 0 {
+		// 每3次檢測打印一次狀態，並檢查「確定」按鈕狀態
+		if checkCount%3 == 0 {
 			log.Debugln("[答題] 等待系統判斷中... (檢測次數:", checkCount, ")")
+			// 檢查「確定」按鈕是否變為非禁用狀態（表示判斷完成但按鈕文本沒變）
+			confirmBtns, _ := page.QuerySelectorAll(`#app .action-row > button`)
+			for _, btn := range confirmBtns {
+				text, _ := btn.TextContent()
+				text = strings.TrimSpace(text)
+				if text == "确定" || text == "確定" {
+					isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+					disabled, _ := isDisabled.(bool)
+
+					// 如果按鈕從禁用變為可用，說明判斷完成
+					if lastConfirmDisabled && !disabled {
+						log.Infoln("[答題] 「確定」按鈕已從禁用變為可用，判斷完成 (檢測次數:", checkCount, ")")
+						return true
+					}
+
+					// 如果按鈕變為可用，嘗試重新點擊
+					if !disabled {
+						log.Warningln("[答題] 「確定」按鈕已恢復可點擊狀態，嘗試重新點擊 (檢測次數:", checkCount, ")")
+						humanClick(btn)
+						humanPause(500, 1000)
+					}
+
+					lastConfirmDisabled = disabled
+					break
+				}
+			}
 		}
 
-		humanPause(700, 1100)
+		humanPause(200, 400) // 快速檢測間隔
 	}
 
 	log.Warningln("[答題] 等待系統判斷超時 (檢測次數:", checkCount, ")")
@@ -3742,211 +3524,14 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		btnText, _ := btn.TextContent()
 		btnText = strings.TrimSpace(btnText)
 
-		// 檢查按鈕是否可點擊
-		isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-		disabled, _ := isDisabled.(bool)
-		if disabled {
-			log.Warningln("[下一題] 按鈕「", btnText, "」當前被禁用，等待恢復...")
-			// 等待按鈕恢復可點擊（最多等待3秒）
-			for wait := 0; wait < 6; wait++ {
-				humanPause(400, 600)
-				isDisabled, _ = btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-				disabled, _ = isDisabled.(bool)
-				if !disabled {
-					log.Infoln("[下一題] 按鈕已恢復可點擊")
-					break
-				}
-			}
-			if disabled {
-				log.Warningln("[下一題] 按鈕持續禁用，可能是答案未選擇完成")
-			}
-		}
-
 		// 快速確認
 		humanPause(200, 500)
 
-		// 對於「確定/提交」按鈕，使用多種方式確保點擊成功
-		clicked := false
-
-		// 第一優先：直接調用 React 事件處理器（最可靠）
-		// 調用完整的鼠標事件序列：mousedown → mouseup → click
-		// 不依賴 getBoundingClientRect（headless 模式下可能返回 0）
-
-		reactClickResult, _ := btn.Evaluate(`el => {
-			const reactKey = Object.keys(el).find(k => k.startsWith('__reactEventHandlers'));
-			if (!reactKey) return { success: false, reason: 'no_react_handler' };
-
-			const handlers = el[reactKey];
-			if (!handlers) return { success: false, reason: 'no_handlers' };
-
-			// 創建模擬事件對象（不依賴坐標）
-			const createSyntheticEvent = (type) => ({
-				preventDefault: () => {},
-				stopPropagation: () => {},
-				nativeEvent: new MouseEvent(type, { bubbles: true, cancelable: true, view: window }),
-				target: el,
-				currentTarget: el,
-				type: type,
-				isDefaultPrevented: () => false,
-				isPropagationStopped: () => false,
-				timeStamp: Date.now()
-			});
-
-			// 按順序調用所有鼠標事件
-			const called = [];
-			if (typeof handlers.onMouseDown === 'function') {
-				handlers.onMouseDown(createSyntheticEvent('mousedown'));
-				called.push('mousedown');
-			}
-			if (typeof handlers.onMouseUp === 'function') {
-				handlers.onMouseUp(createSyntheticEvent('mouseup'));
-				called.push('mouseup');
-			}
-			if (typeof handlers.onClick === 'function') {
-				handlers.onClick(createSyntheticEvent('click'));
-				called.push('click');
-			}
-
-			return { success: true, called: called };
-		}`)
-
-		if res, ok := reactClickResult.(map[string]interface{}); ok {
-			if success, ok := res["success"].(bool); ok && success {
-				// 不立即設置 clicked=true，先驗證是否生效
-				if called, ok := res["called"].([]interface{}); ok {
-					events := make([]string, len(called))
-					for i, v := range called {
-						events[i] = fmt.Sprint(v)
-					}
-					log.Infoln("[下一題] React 事件序列 按鈕：", btnText, " 事件：", strings.Join(events, "→"))
-				} else {
-					log.Infoln("[下一題] React 事件 按鈕：", btnText)
-				}
-
-				// 等待並驗證按鈕是否變成禁用
-				humanPause(200, 400)
-				isNowDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-				if nowDisabled, ok := isNowDisabled.(bool); ok && nowDisabled {
-					clicked = true
-					log.Infoln("[下一題] React 事件生效，按鈕已禁用")
-				} else {
-					log.Warningln("[下一題] React 事件未生效，嘗試其他方法...")
-				}
-			}
+		if err := humanClick(btn); err != nil {
+			lastErr = err
+			continue
 		}
-
-		// 第二優先：使用 Playwright 原生 Click 加 Force 選項
-		if !clicked && !disabled {
-			if err := btn.Click(playwright.ElementHandleClickOptions{
-				Force: playwright.Bool(true),
-			}); err == nil {
-				clicked = true
-				log.Infoln("[下一題] 原生Click(Force)按鈕：", btnText)
-			}
-		}
-
-		// 第三優先：普通原生 Click（無 Force）
-		if !clicked && !disabled {
-			if err := btn.Click(); err == nil {
-				clicked = true
-				log.Infoln("[下一題] 原生Click按鈕：", btnText)
-			}
-		}
-
-		// 第四優先：JavaScript el.click() 方法
-		if !clicked {
-			clickResult, _ := btn.Evaluate(`el => {
-				if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
-					return { success: false, reason: 'disabled' };
-				}
-				el.click();
-				return { success: true };
-			}`)
-			if res, ok := clickResult.(map[string]interface{}); ok {
-				if success, ok := res["success"].(bool); ok && success {
-					clicked = true
-					log.Infoln("[下一題] JS click()按鈕：", btnText)
-				}
-			}
-		}
-
-		// 第三優先：擬人化點擊（帶軌跡）
-		if !clicked && !disabled {
-			if err := humanClickWithTrajectory(btn); err == nil {
-				clicked = true
-				log.Infoln("[下一題] 擬人化點擊按鈕：", btnText)
-			}
-		}
-
-		// 第四優先：使用 dispatchEvent 模擬完整鼠標事件
-		if !clicked {
-			dispatchResult, _ := btn.Evaluate(`el => {
-				if (el.disabled) return { success: false, reason: 'disabled' };
-				const rect = el.getBoundingClientRect();
-				const x = rect.left + rect.width * (0.3 + Math.random() * 0.4);
-				const y = rect.top + rect.height * (0.3 + Math.random() * 0.4);
-
-				// 模擬完整的點擊事件序列
-				const eventInit = {
-					bubbles: true,
-					cancelable: true,
-					view: window,
-					clientX: x,
-					clientY: y,
-					button: 0
-				};
-
-				el.dispatchEvent(new MouseEvent('mousedown', eventInit));
-				el.dispatchEvent(new MouseEvent('mouseup', eventInit));
-				el.dispatchEvent(new MouseEvent('click', eventInit));
-
-				// 也嘗試 el.click()
-				if (typeof el.click === 'function') el.click();
-
-				return { success: true, x: x, y: y };
-			}`)
-			if res, ok := dispatchResult.(map[string]interface{}); ok {
-				if success, ok := res["success"].(bool); ok && success {
-					clicked = true
-					log.Infoln("[下一題] dispatchEvent點擊按鈕：", btnText)
-				}
-			}
-		}
-
-		// 第五優先：普通的 humanClick
-		if !clicked {
-			if err := humanClick(btn); err != nil {
-				lastErr = err
-				continue
-			}
-			log.Infoln("[下一題] humanClick按鈕：", btnText)
-		}
-
-		// 驗證按鈕是否變成禁用（表示點擊已生效）
-		humanPause(500, 800)  // 增加等待時間
-
-		// 調試：檢查點擊後頁面狀態
-		debugResult, _ := page.Evaluate(`() => {
-			const btn = document.querySelector('button.ant-btn-primary');
-			return {
-				buttonText: btn ? btn.textContent.trim() : null,
-				buttonDisabled: btn ? btn.disabled : null,
-				buttonClass: btn ? btn.className : null,
-				hasNextButton: !!document.querySelector('button:has-text("下一题")'),
-				hasError: !!document.querySelector('.error-message, .ant-message-error'),
-				pageUrl: window.location.href
-			};
-		}`)
-		if debug, ok := debugResult.(map[string]interface{}); ok {
-			log.Infoln("[下一題] 點擊後頁面狀態: buttonText=", debug["buttonText"], ", disabled=", debug["buttonDisabled"])
-		}
-
-		isNowDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
-		if nowDisabled, ok := isNowDisabled.(bool); ok && nowDisabled {
-			log.Infoln("[下一題] 按鈕已變為禁用狀態，點擊生效")
-		} else {
-			log.Warningln("[下一題] 按鈕未變為禁用，可能需要重新點擊")
-		}
+		log.Infoln("[下一題] 已點擊按鈕：", btnText)
 
 		// 點擊「確定」後，等待系統判斷完成
 		log.Infoln("[答題] 等待系統判斷答案...")
@@ -3964,7 +3549,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 等待系統判斷完成（最多等待15秒，加快速度）
 		if !waitForSystemJudgment(page, 15*time.Second) {
 			// 可能是滑塊或其他問題
-			if hasAnswerSliderDeepPrompt(page) {
+			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
 			}
@@ -3981,7 +3566,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 				log.Infoln("[答題] 刷新後檢測到結果頁，本輪答題結束")
 				return ErrAnswerComplete
 			}
-			if hasAnswerSliderDeepPrompt(page) {
+			if hasAnswerSliderPrompt(page) {
 				log.Warningln("[答題] 刷新後檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
 			}
