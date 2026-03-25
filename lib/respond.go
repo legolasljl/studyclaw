@@ -401,6 +401,7 @@ func isAnswerCompletionText(text string) bool {
 		"答题结束",
 		"恭喜完成",
 		"满分",
+		"答案解析",  // 第5題答完後顯示解析
 	}
 	for _, keyword := range completionKeywords {
 		if strings.Contains(normalized, keyword) {
@@ -2003,6 +2004,8 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	humanPause(400, 800)
 
 	// 嘗試找到匹配的答案（多選題需要選擇所有匹配項）
+	// 注意：選項是 <div class="q-answer choosable">，選中後變成 <div class="q-answer chosen choosable">
+	// 沒有 input 元素，需要直接點擊 div 並檢測 chosen class
 	var found bool
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
@@ -2010,17 +2013,17 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			continue
 		}
 		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
-			// 找到匹配的答案，使用 JavaScript 觸發點擊（更可靠）
+			// 找到匹配的答案，直接點擊（選項是 div，不是 input）
+			// 使用 data-click 屬性確保觸發正確的點擊區域
 			clickResult, _ := radio.Evaluate(`el => {
-				// 先嘗試找到內部的 input 元素
-				const input = el.querySelector('input[type="radio"], input[type="checkbox"]');
-				if (input) {
-					input.click();
-					return { success: true, method: 'input_click' };
+				// 檢查是否已經選中
+				if (el.classList.contains('chosen')) {
+					return { success: true, method: 'already_chosen' };
 				}
-				// 如果沒有 input，直接點擊元素本身
-				el.click();
-				return { success: true, method: 'element_click' };
+				// 找到帶有 data-click="true" 的可點擊區域
+				const clickTarget = el.querySelector('[data-click="true"]') || el;
+				clickTarget.click();
+				return { success: true, method: 'div_click' };
 			}`)
 			if res, ok := clickResult.(map[string]interface{}); ok {
 				if success, ok := res["success"].(bool); ok && success {
@@ -2028,42 +2031,37 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 					found = true
 					humanPause(200, 400)
 				}
-			} else if err := humanClick(radio); err == nil {
-				log.Infoln("[答題] 選擇匹配答案（humanClick）：", strings.TrimSpace(textContent))
-				found = true
-				humanPause(200, 400)
 			}
 		}
 	}
 
-	// 驗證答案是否被選中（重要：確保點擊生效）
+	// 驗證答案是否被選中（檢查 chosen class）
 	humanPause(300, 500)
 	selectedCount := 0
 	for _, radio := range radios {
-		isSelected, _ := radio.Evaluate(`el => el.classList.contains('selected') || el.classList.contains('ant-radio-wrapper-checked') || el.querySelector('input:checked') !== null`)
+		isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
 		if sel, ok := isSelected.(bool); ok && sel {
 			selectedCount++
 		}
 	}
 	if selectedCount > 0 {
-		log.Infoln("[答題] 已確認 ", selectedCount, " 個選項被選中")
+		log.Infoln("[答題] 已確認 ", selectedCount, " 個選項被選中（chosen class）")
 	} else if found {
-		log.Warningln("[答題] 選項點擊成功但未檢測到選中狀態，嘗試重新點擊")
+		log.Warningln("[答題] 選項點擊成功但未檢測到 chosen class，嘗試重新點擊")
 		// 重新嘗試點擊未選中的匹配項
 		for _, radio := range radios {
 			textContent, _ := radio.TextContent()
 			if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
-				isSelected, _ := radio.Evaluate(`el => el.classList.contains('selected') || el.classList.contains('ant-radio-wrapper-checked') || el.querySelector('input:checked') !== null`)
+				isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
 				if sel, ok := isSelected.(bool); !ok || !sel {
 					// 使用更強力的方式觸發選擇
 					radio.Evaluate(`el => {
-						const input = el.querySelector('input[type="radio"], input[type="checkbox"]');
-						if (input) {
-							input.checked = true;
-							input.dispatchEvent(new Event('change', { bubbles: true }));
-							input.dispatchEvent(new Event('click', { bubbles: true }));
-						}
-						el.classList.add('selected');
+						const clickTarget = el.querySelector('[data-click="true"]') || el;
+						// 觸發完整的點擊事件序列
+						clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+						clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+						clickTarget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+						el.classList.add('chosen');
 					}`)
 					log.Infoln("[答題] 強制選擇答案：", strings.TrimSpace(textContent))
 					humanPause(200, 400)
@@ -2076,7 +2074,7 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	humanPause(200, 300)
 	selectedCount = 0
 	for _, radio := range radios {
-		isSelected, _ := radio.Evaluate(`el => el.classList.contains('selected') || el.classList.contains('ant-radio-wrapper-checked') || el.querySelector('input:checked') !== null`)
+		isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
 		if sel, ok := isSelected.(bool); ok && sel {
 			selectedCount++
 		}
@@ -2085,11 +2083,9 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 
 	// 如果沒找到匹配的答案，隨機選擇第一個選項
 	if !found {
-		// 使用 JavaScript 點擊
 		radios[0].Evaluate(`el => {
-			const input = el.querySelector('input[type="radio"], input[type="checkbox"]');
-			if (input) input.click();
-			else el.click();
+			const clickTarget = el.querySelector('[data-click="true"]') || el;
+			clickTarget.click();
 		}`)
 		text, _ := radios[0].TextContent()
 		log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
@@ -3226,6 +3222,8 @@ func FillBlank(page playwright.Page, questionText string, tips []string) error {
 
 	// 尝试多种选择器获取输入框
 	inputSelectors := []string{
+		`input.blank`,
+		`input[class*="blank"]`,
 		`div.q-body > div > input`,
 		`input[type="text"]`,
 		`textarea`,
