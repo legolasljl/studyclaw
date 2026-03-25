@@ -3812,7 +3812,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 
 		if res, ok := reactClickResult.(map[string]interface{}); ok {
 			if success, ok := res["success"].(bool); ok && success {
-				clicked = true
+				// 不立即設置 clicked=true，先驗證是否生效
 				if called, ok := res["called"].([]interface{}); ok {
 					events := make([]string, len(called))
 					for i, v := range called {
@@ -3821,6 +3821,16 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 					log.Infoln("[下一題] React 事件序列 按鈕：", btnText, " 事件：", strings.Join(events, "→"))
 				} else {
 					log.Infoln("[下一題] React 事件 按鈕：", btnText)
+				}
+
+				// 等待並驗證按鈕是否變成禁用
+				humanPause(200, 400)
+				isNowDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+				if nowDisabled, ok := isNowDisabled.(bool); ok && nowDisabled {
+					clicked = true
+					log.Infoln("[下一題] React 事件生效，按鈕已禁用")
+				} else {
+					log.Warningln("[下一題] React 事件未生效，嘗試其他方法...")
 				}
 			}
 		}
