@@ -2021,33 +2021,48 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 				continue
 			}
 
-			// 混合方案：先嘗試帶軌跡的擬人化點擊
+			// 多種方式嘗試點擊，確保選中
 			clickSuccess := false
-			if err := humanClickWithTrajectory(radio); err == nil {
-				// 驗證是否選中
+
+			// 第一優先：Playwright 原生 Click（isTrusted=true）
+			if err := radio.Click(); err == nil {
 				humanPause(100, 200)
 				isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
 				if sel, ok := isSelected.(bool); ok && sel {
-					log.Infoln("[答題] 選擇匹配答案（擬人化點擊）：", strings.TrimSpace(textContent))
+					log.Infoln("[答題] 選擇匹配答案（原生Click）：", strings.TrimSpace(textContent))
 					clickSuccess = true
 					found = true
 				}
 			}
 
-			// 如果擬人化點擊失敗，使用 JavaScript 點擊作為後備
+			// 第二優先：JavaScript click()
 			if !clickSuccess {
 				radio.Evaluate(`el => {
 					const clickTarget = el.querySelector('[data-click="true"]') || el;
 					clickTarget.click();
 				}`)
-				// 驗證是否選中
 				humanPause(100, 200)
 				isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
 				if sel, ok := isSelected.(bool); ok && sel {
 					log.Infoln("[答題] 選擇匹配答案（JS點擊）：", strings.TrimSpace(textContent))
+					clickSuccess = true
 					found = true
 				}
 			}
+
+			// 第三優先：擬人化點擊
+			if !clickSuccess {
+				if err := humanClickWithTrajectory(radio); err == nil {
+					humanPause(100, 200)
+					isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
+					if sel, ok := isSelected.(bool); ok && sel {
+						log.Infoln("[答題] 選擇匹配答案（擬人化點擊）：", strings.TrimSpace(textContent))
+						clickSuccess = true
+						found = true
+					}
+				}
+			}
+
 			humanPause(200, 400)
 		}
 	}
@@ -3750,30 +3765,35 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 快速確認
 		humanPause(200, 500)
 
-		// 對於「確定/提交」按鈕，先用 JavaScript 點擊確保可靠性
-		// 因為這是最關鍵的操作，選項已選好，必須確保提交成功
+		// 對於「確定/提交」按鈕，使用多種方式確保點擊成功
 		clicked := false
 
-		// 第一優先：JavaScript 點擊（最可靠）
-		clickResult, _ := btn.Evaluate(`el => {
-			// 確保按鈕可點擊
-			if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
-				return { success: false, reason: 'disabled' };
-			}
-			// 觸發完整的點擊事件序列
-			el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-			el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-			el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-			return { success: true, method: 'js_events' };
-		}`)
-		if res, ok := clickResult.(map[string]interface{}); ok {
-			if success, ok := res["success"].(bool); ok && success {
+		// 第一優先：使用 Playwright 原生 Click（isTrusted=true）
+		if !disabled {
+			if err := btn.Click(); err == nil {
 				clicked = true
-				log.Infoln("[下一題] JS事件點擊按鈕：", btnText)
+				log.Infoln("[下一題] 原生Click按鈕：", btnText)
 			}
 		}
 
-		// 第二優先：如果 JS 點擊失敗，嘗試擬人化點擊
+		// 第二優先：JavaScript el.click() 方法
+		if !clicked {
+			clickResult, _ := btn.Evaluate(`el => {
+				if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
+					return { success: false, reason: 'disabled' };
+				}
+				el.click();
+				return { success: true };
+			}`)
+			if res, ok := clickResult.(map[string]interface{}); ok {
+				if success, ok := res["success"].(bool); ok && success {
+					clicked = true
+					log.Infoln("[下一題] JS click()按鈕：", btnText)
+				}
+			}
+		}
+
+		// 第三優先：擬人化點擊（帶軌跡）
 		if !clicked && !disabled {
 			if err := humanClickWithTrajectory(btn); err == nil {
 				clicked = true
@@ -3781,13 +3801,13 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			}
 		}
 
-		// 第三優先：普通的 humanClick
+		// 第四優先：普通的 humanClick
 		if !clicked {
 			if err := humanClick(btn); err != nil {
 				lastErr = err
 				continue
 			}
-			log.Infoln("[下一題] 已點擊按鈕：", btnText)
+			log.Infoln("[下一題] humanClick按鈕：", btnText)
 		}
 
 		// 驗證按鈕是否變成禁用（表示點擊已生效）
