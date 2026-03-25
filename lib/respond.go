@@ -3769,25 +3769,43 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		clicked := false
 
 		// 第一優先：直接調用 React 事件處理器（最可靠）
+		// 需要調用完整的鼠標事件序列：mousedown → mouseup → click
 		reactClickResult, _ := btn.Evaluate(`el => {
 			// 查找 React 事件處理器
 			const reactKey = Object.keys(el).find(k => k.startsWith('__reactEventHandlers'));
 			if (reactKey) {
 				const handlers = el[reactKey];
-				if (handlers && typeof handlers.onClick === 'function') {
+				if (handlers) {
 					// 創建模擬事件對象
-					const syntheticEvent = {
+					const createSyntheticEvent = (type) => ({
 						preventDefault: () => {},
 						stopPropagation: () => {},
-						nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true }),
+						nativeEvent: new MouseEvent(type, { bubbles: true, cancelable: true }),
 						target: el,
 						currentTarget: el,
-						type: 'click',
+						type: type,
 						isDefaultPrevented: () => false,
 						isPropagationStopped: () => false
-					};
-					handlers.onClick(syntheticEvent);
-					return { success: true, method: 'react_handler' };
+					});
+
+					// 按順序調用所有鼠標事件
+					const called = [];
+					if (typeof handlers.onMouseDown === 'function') {
+						handlers.onMouseDown(createSyntheticEvent('mousedown'));
+						called.push('mousedown');
+					}
+					if (typeof handlers.onMouseUp === 'function') {
+						handlers.onMouseUp(createSyntheticEvent('mouseup'));
+						called.push('mouseup');
+					}
+					if (typeof handlers.onClick === 'function') {
+						handlers.onClick(createSyntheticEvent('click'));
+						called.push('click');
+					}
+
+					if (called.length > 0) {
+						return { success: true, method: 'react_full_sequence', called: called };
+					}
 				}
 			}
 			return { success: false, reason: 'no_react_handler' };
@@ -3795,7 +3813,15 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		if res, ok := reactClickResult.(map[string]interface{}); ok {
 			if success, ok := res["success"].(bool); ok && success {
 				clicked = true
-				log.Infoln("[下一題] React onClick 按鈕：", btnText)
+				if called, ok := res["called"].([]interface{}); ok {
+					events := make([]string, len(called))
+					for i, v := range called {
+						events[i] = fmt.Sprint(v)
+					}
+					log.Infoln("[下一題] React 事件序列 按鈕：", btnText, " 事件：", strings.Join(events, "→"))
+				} else {
+					log.Infoln("[下一題] React 事件 按鈕：", btnText)
+				}
 			}
 		}
 
