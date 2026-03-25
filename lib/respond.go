@@ -3768,8 +3768,39 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 對於「確定/提交」按鈕，使用多種方式確保點擊成功
 		clicked := false
 
-		// 第一優先：使用 Playwright 原生 Click 加 Force 選項（繞過可操作性檢查）
-		if !disabled {
+		// 第一優先：直接調用 React 事件處理器（最可靠）
+		reactClickResult, _ := btn.Evaluate(`el => {
+			// 查找 React 事件處理器
+			const reactKey = Object.keys(el).find(k => k.startsWith('__reactEventHandlers'));
+			if (reactKey) {
+				const handlers = el[reactKey];
+				if (handlers && typeof handlers.onClick === 'function') {
+					// 創建模擬事件對象
+					const syntheticEvent = {
+						preventDefault: () => {},
+						stopPropagation: () => {},
+						nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true }),
+						target: el,
+						currentTarget: el,
+						type: 'click',
+						isDefaultPrevented: () => false,
+						isPropagationStopped: () => false
+					};
+					handlers.onClick(syntheticEvent);
+					return { success: true, method: 'react_handler' };
+				}
+			}
+			return { success: false, reason: 'no_react_handler' };
+		}`)
+		if res, ok := reactClickResult.(map[string]interface{}); ok {
+			if success, ok := res["success"].(bool); ok && success {
+				clicked = true
+				log.Infoln("[下一題] React onClick 按鈕：", btnText)
+			}
+		}
+
+		// 第二優先：使用 Playwright 原生 Click 加 Force 選項
+		if !clicked && !disabled {
 			if err := btn.Click(playwright.ElementHandleClickOptions{
 				Force: playwright.Bool(true),
 			}); err == nil {
@@ -3778,7 +3809,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			}
 		}
 
-		// 第二優先：普通原生 Click（無 Force）
+		// 第三優先：普通原生 Click（無 Force）
 		if !clicked && !disabled {
 			if err := btn.Click(); err == nil {
 				clicked = true
@@ -3786,7 +3817,7 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			}
 		}
 
-		// 第三優先：JavaScript el.click() 方法
+		// 第四優先：JavaScript el.click() 方法
 		if !clicked {
 			clickResult, _ := btn.Evaluate(`el => {
 				if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
