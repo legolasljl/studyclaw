@@ -309,8 +309,25 @@ func TestBuildClickBlankAnswersPrefersOptionSegments(t *testing.T) {
 }
 
 func TestBuildClickBlankAnswersPrefersWholeOptionWithSameRunes(t *testing.T) {
+	// 當候選詞中有亂序的整詞選項時，應該返回提示的正確順序（拆分為單字）
+	// 因為 blankCount = 4，需要 4 個單獨的答案
 	got := buildClickBlankAnswers([]string{"应用场景"}, []string{"场景应用", "场", "景", "应", "用"}, 4)
-	want := []string{"场景应用"}
+	want := []string{"应", "用", "场", "景"} // 使用提示的正確順序，而非亂序的選項
+	if len(got) != len(want) {
+		t.Fatalf("buildClickBlankAnswers() len = %d, want %d, got=%v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("buildClickBlankAnswers()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildClickBlankAnswersCorrectOrderWithScrambledOption(t *testing.T) {
+	// 測試真實場景：提示「国药准字」，候選詞包含亂序的「字准药国」
+	// 應該返回提示的正確順序，而非亂序選項
+	got := buildClickBlankAnswers([]string{"国药准字"}, []string{"字准药国", "字", "准", "药", "国"}, 4)
+	want := []string{"国", "药", "准", "字"}
 	if len(got) != len(want) {
 		t.Fatalf("buildClickBlankAnswers() len = %d, want %d, got=%v", len(got), len(want), got)
 	}

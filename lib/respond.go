@@ -2835,12 +2835,17 @@ func buildClickBlankAnswers(tips []string, options []string, blankCount int) []s
 			if candidateBag == "" {
 				continue
 			}
-			for _, option := range uniqueSelectableAnswerTexts(options) {
-				if utf8.RuneCountInString(option) <= 1 {
-					continue
-				}
-				if canonicalRuneBag(option) == candidateBag {
-					return []string{option}
+			candidateRunes := splitAnswerToRunes(candidate)
+			// 如果候選答案的字符數等於空格數，優先使用候選答案的順序
+			if len(candidateRunes) == blankCount {
+				for _, option := range uniqueSelectableAnswerTexts(options) {
+					if utf8.RuneCountInString(option) <= 1 {
+						continue
+					}
+					// 用 option 驗證字符集是否匹配，但返回 candidate 的正確順序
+					if canonicalRuneBag(option) == candidateBag {
+						return candidateRunes
+					}
 				}
 			}
 		}
