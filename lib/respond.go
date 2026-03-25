@@ -3768,9 +3768,9 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 對於「確定/提交」按鈕，使用多種方式確保點擊成功
 		clicked := false
 
-		// 第一優先：直接調用 React 事件處理器（最可靠，帶擬人化）
-		// 需要調用完整的鼠標事件序列：mousedown → mouseup → click
-		// 單次 Evaluate 調用，JS 內部處理延遲，減少 Go↔JS 通信開銷
+		// 第一優先：直接調用 React 事件處理器（最可靠）
+		// 調用完整的鼠標事件序列：mousedown → mouseup → click
+		// 不依賴 getBoundingClientRect（headless 模式下可能返回 0）
 
 		reactClickResult, _ := btn.Evaluate(`el => {
 			const reactKey = Object.keys(el).find(k => k.startsWith('__reactEventHandlers'));
@@ -3779,53 +3779,46 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			const handlers = el[reactKey];
 			if (!handlers) return { success: false, reason: 'no_handlers' };
 
-			// 獲取按鈕位置，計算隨機點擊坐標（擬人化）
-			const rect = el.getBoundingClientRect();
-			const x = rect.left + rect.width * (0.25 + Math.random() * 0.5);
-			const y = rect.top + rect.height * (0.25 + Math.random() * 0.5);
-
-			// 創建帶有真實鼠標屬性的模擬事件對象
-			const createSyntheticEvent = (type, buttons) => ({
+			// 創建模擬事件對象（不依賴坐標）
+			const createSyntheticEvent = (type) => ({
 				preventDefault: () => {},
 				stopPropagation: () => {},
-				nativeEvent: new MouseEvent(type, {
-					bubbles: true, cancelable: true, view: window,
-					clientX: x, clientY: y, button: 0, buttons: buttons
-				}),
-				target: el, currentTarget: el, type: type,
-				isDefaultPrevented: () => false, isPropagationStopped: () => false,
-				clientX: x, clientY: y, button: 0, buttons: buttons, timeStamp: Date.now()
+				nativeEvent: new MouseEvent(type, { bubbles: true, cancelable: true, view: window }),
+				target: el,
+				currentTarget: el,
+				type: type,
+				isDefaultPrevented: () => false,
+				isPropagationStopped: () => false,
+				timeStamp: Date.now()
 			});
 
-			// 按順序調用所有鼠標事件（同步，無延遲以減少開銷）
+			// 按順序調用所有鼠標事件
 			const called = [];
 			if (typeof handlers.onMouseDown === 'function') {
-				handlers.onMouseDown(createSyntheticEvent('mousedown', 1));
+				handlers.onMouseDown(createSyntheticEvent('mousedown'));
 				called.push('mousedown');
 			}
 			if (typeof handlers.onMouseUp === 'function') {
-				handlers.onMouseUp(createSyntheticEvent('mouseup', 0));
+				handlers.onMouseUp(createSyntheticEvent('mouseup'));
 				called.push('mouseup');
 			}
 			if (typeof handlers.onClick === 'function') {
-				handlers.onClick(createSyntheticEvent('click', 0));
+				handlers.onClick(createSyntheticEvent('click'));
 				called.push('click');
 			}
 
-			return { success: true, called: called, x: Math.round(x), y: Math.round(y) };
+			return { success: true, called: called };
 		}`)
 
 		if res, ok := reactClickResult.(map[string]interface{}); ok {
 			if success, ok := res["success"].(bool); ok && success {
 				clicked = true
-				x, _ := res["x"].(float64)
-				y, _ := res["y"].(float64)
 				if called, ok := res["called"].([]interface{}); ok {
 					events := make([]string, len(called))
 					for i, v := range called {
 						events[i] = fmt.Sprint(v)
 					}
-					log.Infoln("[下一題] React 擬人化序列 按鈕：", btnText, " 事件：", strings.Join(events, "→"), " 坐標：(", int(x), ",", int(y), ")")
+					log.Infoln("[下一題] React 事件序列 按鈕：", btnText, " 事件：", strings.Join(events, "→"))
 				} else {
 					log.Infoln("[下一題] React 事件 按鈕：", btnText)
 				}
