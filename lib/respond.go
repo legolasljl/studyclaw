@@ -2002,8 +2002,8 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 	// 快速閱讀題目
 	humanPause(400, 800)
 
-	// 嘗試找到匹配的答案
-	found := false
+	// 嘗試找到匹配的答案（多選題需要選擇所有匹配項）
+	var found bool
 	for _, radio := range radios {
 		textContent, err := radio.TextContent()
 		if err != nil {
@@ -2014,7 +2014,8 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			if err := humanClick(radio); err == nil {
 				log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent))
 				found = true
-				break
+				// 不要 break，繼續選擇其他匹配的選項（多選題需要選多項）
+				humanPause(200, 400)
 			}
 		}
 	}
