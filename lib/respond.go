@@ -3768,15 +3768,25 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 對於「確定/提交」按鈕，使用多種方式確保點擊成功
 		clicked := false
 
-		// 第一優先：使用 Playwright 原生 Click（isTrusted=true）
+		// 第一優先：使用 Playwright 原生 Click 加 Force 選項（繞過可操作性檢查）
 		if !disabled {
+			if err := btn.Click(playwright.ElementHandleClickOptions{
+				Force: playwright.Bool(true),
+			}); err == nil {
+				clicked = true
+				log.Infoln("[下一題] 原生Click(Force)按鈕：", btnText)
+			}
+		}
+
+		// 第二優先：普通原生 Click（無 Force）
+		if !clicked && !disabled {
 			if err := btn.Click(); err == nil {
 				clicked = true
 				log.Infoln("[下一題] 原生Click按鈕：", btnText)
 			}
 		}
 
-		// 第二優先：JavaScript el.click() 方法
+		// 第三優先：JavaScript el.click() 方法
 		if !clicked {
 			clickResult, _ := btn.Evaluate(`el => {
 				if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
@@ -3801,7 +3811,42 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			}
 		}
 
-		// 第四優先：普通的 humanClick
+		// 第四優先：使用 dispatchEvent 模擬完整鼠標事件
+		if !clicked {
+			dispatchResult, _ := btn.Evaluate(`el => {
+				if (el.disabled) return { success: false, reason: 'disabled' };
+				const rect = el.getBoundingClientRect();
+				const x = rect.left + rect.width * (0.3 + Math.random() * 0.4);
+				const y = rect.top + rect.height * (0.3 + Math.random() * 0.4);
+
+				// 模擬完整的點擊事件序列
+				const eventInit = {
+					bubbles: true,
+					cancelable: true,
+					view: window,
+					clientX: x,
+					clientY: y,
+					button: 0
+				};
+
+				el.dispatchEvent(new MouseEvent('mousedown', eventInit));
+				el.dispatchEvent(new MouseEvent('mouseup', eventInit));
+				el.dispatchEvent(new MouseEvent('click', eventInit));
+
+				// 也嘗試 el.click()
+				if (typeof el.click === 'function') el.click();
+
+				return { success: true, x: x, y: y };
+			}`)
+			if res, ok := dispatchResult.(map[string]interface{}); ok {
+				if success, ok := res["success"].(bool); ok && success {
+					clicked = true
+					log.Infoln("[下一題] dispatchEvent點擊按鈕：", btnText)
+				}
+			}
+		}
+
+		// 第五優先：普通的 humanClick
 		if !clicked {
 			if err := humanClick(btn); err != nil {
 				lastErr = err
@@ -3811,7 +3856,24 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		}
 
 		// 驗證按鈕是否變成禁用（表示點擊已生效）
-		humanPause(300, 500)
+		humanPause(500, 800)  // 增加等待時間
+
+		// 調試：檢查點擊後頁面狀態
+		debugResult, _ := page.Evaluate(`() => {
+			const btn = document.querySelector('button.ant-btn-primary');
+			return {
+				buttonText: btn ? btn.textContent.trim() : null,
+				buttonDisabled: btn ? btn.disabled : null,
+				buttonClass: btn ? btn.className : null,
+				hasNextButton: !!document.querySelector('button:has-text("下一题")'),
+				hasError: !!document.querySelector('.error-message, .ant-message-error'),
+				pageUrl: window.location.href
+			};
+		}`)
+		if debug, ok := debugResult.(map[string]interface{}); ok {
+			log.Infoln("[下一題] 點擊後頁面狀態: buttonText=", debug["buttonText"], ", disabled=", debug["buttonDisabled"])
+		}
+
 		isNowDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
 		if nowDisabled, ok := isNowDisabled.(bool); ok && nowDisabled {
 			log.Infoln("[下一題] 按鈕已變為禁用狀態，點擊生效")
