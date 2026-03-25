@@ -393,6 +393,7 @@ func isAnswerCompletionText(text string) bool {
 	}
 
 	// 檢測答題完成的常見關鍵詞
+	// 注意：「答案解析」在答錯時就會出現，不能作為結果頁標誌
 	completionKeywords := []string{
 		"本次答对题目数",
 		"再来一组",
@@ -401,7 +402,6 @@ func isAnswerCompletionText(text string) bool {
 		"答题结束",
 		"恭喜完成",
 		"满分",
-		"答案解析",  // 第5題答完後顯示解析
 	}
 	for _, keyword := range completionKeywords {
 		if strings.Contains(normalized, keyword) {
@@ -2013,30 +2013,47 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			continue
 		}
 		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
-			// 找到匹配的答案，直接點擊（選項是 div，不是 input）
-			// 使用 data-click 屬性確保觸發正確的點擊區域
-			clickResult, _ := radio.Evaluate(`el => {
-				// 檢查是否已經選中
-				if (el.classList.contains('chosen')) {
-					return { success: true, method: 'already_chosen' };
-				}
-				// 找到帶有 data-click="true" 的可點擊區域
-				const clickTarget = el.querySelector('[data-click="true"]') || el;
-				clickTarget.click();
-				return { success: true, method: 'div_click' };
-			}`)
-			if res, ok := clickResult.(map[string]interface{}); ok {
-				if success, ok := res["success"].(bool); ok && success {
-					log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent), "方法:", res["method"])
+			// 檢查是否已經選中
+			isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
+			if sel, ok := isSelected.(bool); ok && sel {
+				log.Infoln("[答題] 選項已選中：", strings.TrimSpace(textContent))
+				found = true
+				continue
+			}
+
+			// 混合方案：先嘗試帶軌跡的擬人化點擊
+			clickSuccess := false
+			if err := humanClickWithTrajectory(radio); err == nil {
+				// 驗證是否選中
+				humanPause(100, 200)
+				isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
+				if sel, ok := isSelected.(bool); ok && sel {
+					log.Infoln("[答題] 選擇匹配答案（擬人化點擊）：", strings.TrimSpace(textContent))
+					clickSuccess = true
 					found = true
-					humanPause(200, 400)
 				}
 			}
+
+			// 如果擬人化點擊失敗，使用 JavaScript 點擊作為後備
+			if !clickSuccess {
+				radio.Evaluate(`el => {
+					const clickTarget = el.querySelector('[data-click="true"]') || el;
+					clickTarget.click();
+				}`)
+				// 驗證是否選中
+				humanPause(100, 200)
+				isSelected, _ = radio.Evaluate(`el => el.classList.contains('chosen')`)
+				if sel, ok := isSelected.(bool); ok && sel {
+					log.Infoln("[答題] 選擇匹配答案（JS點擊）：", strings.TrimSpace(textContent))
+					found = true
+				}
+			}
+			humanPause(200, 400)
 		}
 	}
 
 	// 驗證答案是否被選中（檢查 chosen class）
-	humanPause(300, 500)
+	humanPause(200, 300)
 	selectedCount := 0
 	for _, radio := range radios {
 		isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
@@ -2044,49 +2061,18 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			selectedCount++
 		}
 	}
-	if selectedCount > 0 {
-		log.Infoln("[答題] 已確認 ", selectedCount, " 個選項被選中（chosen class）")
-	} else if found {
-		log.Warningln("[答題] 選項點擊成功但未檢測到 chosen class，嘗試重新點擊")
-		// 重新嘗試點擊未選中的匹配項
-		for _, radio := range radios {
-			textContent, _ := radio.TextContent()
-			if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
-				isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
-				if sel, ok := isSelected.(bool); !ok || !sel {
-					// 使用更強力的方式觸發選擇
-					radio.Evaluate(`el => {
-						const clickTarget = el.querySelector('[data-click="true"]') || el;
-						// 觸發完整的點擊事件序列
-						clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-						clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-						clickTarget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-						el.classList.add('chosen');
-					}`)
-					log.Infoln("[答題] 強制選擇答案：", strings.TrimSpace(textContent))
-					humanPause(200, 400)
-				}
-			}
-		}
-	}
-
-	// 再次驗證
-	humanPause(200, 300)
-	selectedCount = 0
-	for _, radio := range radios {
-		isSelected, _ := radio.Evaluate(`el => el.classList.contains('chosen')`)
-		if sel, ok := isSelected.(bool); ok && sel {
-			selectedCount++
-		}
-	}
-	log.Infoln("[答題] 最終確認選中 ", selectedCount, " 個選項")
+	log.Infoln("[答題] 已確認 ", selectedCount, " 個選項被選中（chosen class）")
 
 	// 如果沒找到匹配的答案，隨機選擇第一個選項
 	if !found {
-		radios[0].Evaluate(`el => {
-			const clickTarget = el.querySelector('[data-click="true"]') || el;
-			clickTarget.click();
-		}`)
+		// 先嘗試擬人化點擊
+		if err := humanClickWithTrajectory(radios[0]); err != nil {
+			// 失敗則用 JavaScript
+			radios[0].Evaluate(`el => {
+				const clickTarget = el.querySelector('[data-click="true"]') || el;
+				clickTarget.click();
+			}`)
+		}
 		text, _ := radios[0].TextContent()
 		log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
 	}
@@ -2253,6 +2239,56 @@ func humanClick(el playwright.ElementHandle) error {
 	offsetY := box.Height*0.2 + float64(rand2.Intn(int(box.Height*0.6)+1))
 	return el.Click(playwright.ElementHandleClickOptions{
 		Position: &playwright.Position{X: offsetX, Y: offsetY},
+	})
+}
+
+// humanClickWithTrajectory 帶鼠標軌跡模擬的點擊
+// 先移動到元素附近，再移動到目標位置，最後點擊
+func humanClickWithTrajectory(el playwright.ElementHandle) error {
+	box, err := el.BoundingBox()
+	if err != nil || box == nil || box.Width < 1 || box.Height < 1 {
+		return el.Click()
+	}
+
+	// 計算最終點擊位置（在元素中心區域隨機）
+	clickX := box.Width*0.2 + float64(rand2.Intn(maxInt(int(box.Width*0.6), 1)))
+	clickY := box.Height*0.2 + float64(rand2.Intn(maxInt(int(box.Height*0.6), 1)))
+
+	// 第一步：移動到元素附近（不是直接到元素上）
+	nearbyOffsetX := float64(rand2.Intn(80) - 40) // ±40px
+	nearbyOffsetY := float64(rand2.Intn(60) - 30) // ±30px
+	err = el.Hover(playwright.ElementHandleHoverOptions{
+		Timeout: playwright.Float(3000),
+		Position: &playwright.Position{
+			X: box.Width/2 + nearbyOffsetX,
+			Y: box.Height/2 + nearbyOffsetY,
+		},
+	})
+	if err != nil {
+		// Hover 失敗，直接嘗試點擊
+		return el.Click(playwright.ElementHandleClickOptions{
+			Position: &playwright.Position{X: clickX, Y: clickY},
+		})
+	}
+
+	// 短暫停頓，模擬猶豫（100-300ms）
+	humanPause(100, 300)
+
+	// 第二步：移動到最終點擊位置
+	err = el.Hover(playwright.ElementHandleHoverOptions{
+		Timeout:  playwright.Float(3000),
+		Position: &playwright.Position{X: clickX, Y: clickY},
+	})
+	if err != nil {
+		return el.Click(playwright.ElementHandleClickOptions{
+			Position: &playwright.Position{X: clickX, Y: clickY},
+		})
+	}
+
+	// 短暫停頓後點擊
+	humanPause(50, 150)
+	return el.Click(playwright.ElementHandleClickOptions{
+		Position: &playwright.Position{X: clickX, Y: clickY},
 	})
 }
 
@@ -3714,30 +3750,42 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 快速確認
 		humanPause(200, 500)
 
-		// 使用 JavaScript 點擊按鈕（更可靠）
-		clickResult, _ := btn.Evaluate(`el => {
-			// 確保按鈕可點擊
-			if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
-				return { success: false, reason: 'disabled' };
-			}
-			// 觸發點擊事件
-			el.click();
-			return { success: true };
-		}`)
+		// 混合方案：先嘗試帶軌跡的擬人化點擊
 		clicked := false
-		if res, ok := clickResult.(map[string]interface{}); ok {
-			if success, ok := res["success"].(bool); ok && success {
+		if !disabled {
+			if err := humanClickWithTrajectory(btn); err == nil {
 				clicked = true
+				log.Infoln("[下一題] 擬人化點擊按鈕：", btnText)
 			}
 		}
-		// 如果 JavaScript 點擊失敗，嘗試 humanClick
+
+		// 如果擬人化點擊失敗或按鈕被禁用，使用 JavaScript 點擊作為後備
 		if !clicked {
+			clickResult, _ := btn.Evaluate(`el => {
+				// 確保按鈕可點擊
+				if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
+					return { success: false, reason: 'disabled' };
+				}
+				// 觸發點擊事件
+				el.click();
+				return { success: true };
+			}`)
+			if res, ok := clickResult.(map[string]interface{}); ok {
+				if success, ok := res["success"].(bool); ok && success {
+					clicked = true
+					log.Infoln("[下一題] JS點擊按鈕：", btnText)
+				}
+			}
+		}
+
+		if !clicked {
+			// 最後嘗試普通 humanClick
 			if err := humanClick(btn); err != nil {
 				lastErr = err
 				continue
 			}
+			log.Infoln("[下一題] 已點擊按鈕：", btnText)
 		}
-		log.Infoln("[下一題] 已點擊按鈕：", btnText)
 
 		// 點擊「確定」後，等待系統判斷完成
 		log.Infoln("[答題] 等待系統判斷答案...")
