@@ -44,6 +44,37 @@ var (
 		`.detail-body .question .q-header`,
 		`.question .q-header`,
 	}
+	answerQuestionBodySelectors = []string{
+		`#app .detail-body .question .q-body`,
+		`.detail-body .question .q-body`,
+		`.question .q-body`,
+	}
+	answerQuestionInteractiveSelectors = []string{
+		`#app .detail-body .q-answer.choosable`,
+		`.detail-body .q-answer.choosable`,
+		`.q-answer.choosable`,
+		`#app .detail-body .q-body input`,
+		`.detail-body .q-body input`,
+		`.q-body input`,
+		`#app .detail-body .q-body textarea`,
+		`.detail-body .q-body textarea`,
+		`.q-body textarea`,
+		`#app .detail-body .q-body [contenteditable="true"]`,
+		`.detail-body .q-body [contenteditable="true"]`,
+		`.q-body [contenteditable="true"]`,
+		`#app .detail-body .q-body [contenteditable="plaintext-only"]`,
+		`.detail-body .q-body [contenteditable="plaintext-only"]`,
+		`.q-body [contenteditable="plaintext-only"]`,
+		`#app .detail-body .q-body [contenteditable]`,
+		`.detail-body .q-body [contenteditable]`,
+		`.q-body [contenteditable]`,
+		`#app .detail-body .q-body .click-box`,
+		`.detail-body .q-body .click-box`,
+		`.q-body .click-box`,
+		`#app .detail-body .question .q-footer`,
+		`.detail-body .question .q-footer`,
+		`.question .q-footer`,
+	}
 	answerSliderExactSelectors = []string{
 		`#nc_mask > div`,
 		`#nc_1_wrapper`,
@@ -121,7 +152,13 @@ func waitForVisibleSelector(page playwright.Page, selectors []string, attempts i
 }
 
 func hasAnswerQuestion(page playwright.Page) bool {
-	return hasVisibleSelector(page, answerQuestionSelectors)
+	if hasVisibleSelector(page, answerQuestionSelectors) {
+		return true
+	}
+	if !hasVisibleSelector(page, answerQuestionBodySelectors) {
+		return false
+	}
+	return hasVisibleSelector(page, answerQuestionInteractiveSelectors)
 }
 
 func hasAnswerSliderExactPrompt(page playwright.Page) bool {
@@ -202,6 +239,24 @@ func containsAnswerSliderContextText(text string) bool {
 	return false
 }
 
+func containsAnswerQuestionContextText(text string) bool {
+	normalized := normalizeAnswerButtonText(text)
+	if normalized == "" {
+		return false
+	}
+	hasQuestionType := strings.Contains(normalized, "单选题") ||
+		strings.Contains(normalized, "多选题") ||
+		strings.Contains(normalized, "填空题")
+	if !hasQuestionType {
+		return false
+	}
+	return strings.Contains(normalized, "上一题") ||
+		strings.Contains(normalized, "确定") ||
+		strings.Contains(normalized, "提交") ||
+		strings.Contains(normalized, "查看提示") ||
+		strings.Contains(normalized, "提示")
+}
+
 func containsAnswerFlowBlockedText(text string) bool {
 	normalized := normalizeAnswerButtonText(text)
 	if normalized == "" {
@@ -209,7 +264,10 @@ func containsAnswerFlowBlockedText(text string) bool {
 	}
 	return strings.Contains(normalized, "请不要中途开启新的答题流程") ||
 		strings.Contains(normalized, "不支持多端同时作答") ||
-		strings.Contains(normalized, "答题流程")
+		(strings.Contains(normalized, "答题流程") &&
+			(strings.Contains(normalized, "中途开启") ||
+				strings.Contains(normalized, "多端") ||
+				strings.Contains(normalized, "同时作答")))
 }
 
 func getAnswerPageText(page playwright.Page) string {
@@ -498,11 +556,40 @@ func openAnswerSection(page playwright.Page, modelName string) error {
 	return fmt.Errorf("未找到%s入口", sectionName)
 }
 
+func openDailyPracticePage(page playwright.Page, referer string) error {
+	if strings.TrimSpace(referer) == "" {
+		referer = MyPointsUri
+	}
+	_, err := page.Goto(DailyPracticeUri, playwright.PageGotoOptions{
+		Referer:   playwright.String(referer),
+		Timeout:   playwright.Float(15000),
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	})
+	if err != nil {
+		return err
+	}
+	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 300, 700)
+	humanPause(800, 1400)
+	return nil
+}
+
 func ensureAnswerQuestionReady(page playwright.Page) error {
 	if hasAnswerQuestion(page) {
 		return nil
 	}
-	if waitForVisibleSelector(page, answerQuestionSelectors, 8, 500, 900) {
+	if containsAnswerQuestionContextText(getAnswerPageText(page)) {
+		return nil
+	}
+	if waitForVisibleSelector(page, answerQuestionSelectors, 4, 300, 600) && hasAnswerQuestion(page) {
+		return nil
+	}
+	if waitForVisibleSelector(page, answerQuestionBodySelectors, 4, 300, 600) && hasAnswerQuestion(page) {
+		return nil
+	}
+	if waitForVisibleSelector(page, answerQuestionInteractiveSelectors, 4, 300, 600) && hasAnswerQuestion(page) {
+		return nil
+	}
+	if containsAnswerQuestionContextText(getAnswerPageText(page)) {
 		return nil
 	}
 	return errors.New("答题页面未进入可作答状态")
@@ -512,12 +599,21 @@ func clickPreQuestionAction(page playwright.Page) error {
 	if hasAnswerQuestion(page) {
 		return nil
 	}
+	if containsAnswerQuestionContextText(getAnswerPageText(page)) {
+		return nil
+	}
 
 	buttonSelectors := []string{
 		`#app .detail-body .action-row button`,
 		`#app .detail-body .action-row [role="button"]`,
 		`.detail-body .action-row button`,
 		`.detail-body .action-row [role="button"]`,
+		`#app .detail-body button.ant-btn-primary`,
+		`.detail-body button.ant-btn-primary`,
+		`#app .detail-body button`,
+		`.detail-body button`,
+		`#app .detail-body [role="button"]`,
+		`.detail-body [role="button"]`,
 	}
 	keywords := []string{"开始答题", "继续答题", "重新开始", "再来一组", "确定", "提交"}
 
@@ -1034,36 +1130,10 @@ func (c *Core) checkDailyScoreAndContinue(page playwright.Page, user *model.User
 
 	// 直接跳轉到每日答題頁面 (exam-practice.html)
 	log.Infoln("[答題] 進入每日答題頁面...")
-	_, err = page.Goto(DailyPracticeUri, playwright.PageGotoOptions{
-		Referer:   playwright.String(MyPointsUri),
-		Timeout:   playwright.Float(15000),
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-	})
+	err = openDailyPracticePage(page, MyPointsUri)
 	if err != nil {
 		log.Errorln("[答題] 跳轉答題頁面失敗: " + err.Error())
 		return false
-	}
-
-	humanPause(3000, 5000)
-
-	// 檢測是否有"不要中途開啟新的答題流程"的提示
-	pageText, _ := page.Evaluate(`() => document.body ? document.body.innerText || "" : ""`)
-	if text, ok := pageText.(string); ok {
-		normalizedText := strings.ReplaceAll(text, " ", "")
-		normalizedText = strings.ReplaceAll(normalizedText, "\n", "")
-		if strings.Contains(normalizedText, "请不要中途开启") ||
-			strings.Contains(normalizedText, "不支持多端同时作答") ||
-			strings.Contains(normalizedText, "答题流程") {
-			log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
-			humanPause(8000, 15000) // 8-15秒：需讓前一輪完全結束（原 20-30s 過長）
-
-			// 刷新頁面重試
-			page.Reload(playwright.PageReloadOptions{
-				Timeout:   playwright.Float(15000),
-				WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-			})
-			humanPause(3000, 5000)
-		}
 	}
 
 	// 等待答題頁面加載
@@ -1091,6 +1161,7 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 	var title string
 	retryTimes := 0
 	var id int
+	dailyDirectOpenTried := false
 
 	// 专项答题已取消，直接返回
 	if modelName == "special" {
@@ -1199,9 +1270,12 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 			// 点击每日答题的按钮
 			err = openAnswerSection(page, modelName)
 			if err != nil {
-				log.Errorln("跳转到积分页面错误" + err.Error())
-
-				return false
+				log.Warningln("[答題] 積分頁入口打開失敗，改用直達頁: " + err.Error())
+				if err = openDailyPracticePage(page, MyPointsUri); err != nil {
+					log.Errorln("跳转到答题页面错误" + err.Error())
+					return false
+				}
+				dailyDirectOpenTried = true
 			}
 			c.Push(user.PushId, "text", "已加载每日答题模块")
 		}
@@ -1259,12 +1333,24 @@ func (c *Core) RespondDaily(user *model.User, modelName string) bool {
 	}
 	waitForVisibleSelector(page, answerWorkspaceSelectors, 8, 300, 600)
 	humanPause(800, 1400)
-	if err := ensureAnswerQuestionReady(page); err != nil {
+	initialReadyErr := ensureAnswerQuestionReady(page)
+	if initialReadyErr != nil {
 		if isAnswerRoundComplete(page) {
 			log.Infoln("[答題] 檢測到結果頁，本輪答題結束")
 			return true
 		}
-		log.Debugln("[答題] 首次進入題目頁時尚未就緒: ", err.Error())
+		if modelName == "daily" && !dailyDirectOpenTried && !hasAnswerSliderPrompt(page) {
+			log.Warningln("[答題] 首次進入每日答題頁未就緒，嘗試直達頁重試")
+			if err := openDailyPracticePage(page, MyPointsUri); err != nil {
+				log.Warningln("[答題] 直達每日答題頁失敗: " + err.Error())
+			} else {
+				dailyDirectOpenTried = true
+				initialReadyErr = ensureAnswerQuestionReady(page)
+			}
+		}
+		if initialReadyErr != nil {
+			log.Debugln("[答題] 首次進入題目頁時尚未就緒: ", initialReadyErr.Error())
+		}
 	}
 	// 跳转到答题页面，若返回true则说明已答完
 	// if getAnswerPage(page, model) {
@@ -3353,10 +3439,6 @@ func waitForSystemJudgment(page playwright.Page, timeout time.Duration) bool {
 				log.Infoln("[答題] 系統判斷完成，已到達結果頁")
 				return true
 			}
-			if containsAnswerFlowBlockedText(pageText) {
-				log.Warningln("[答題] 檢測到答題流程佔用提示")
-				return false
-			}
 			if containsAnswerSliderSpecificText(pageText) ||
 				((containsAnswerSliderContextText(pageText) || containsAnswerSliderLooseText(pageText)) && hasPotentialAnswerSliderElement(page)) {
 				log.Infoln("[答題] 系統判斷期間出現滑塊驗證")
@@ -3578,11 +3660,6 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 				log.Warningln("[答題] 等待判斷期間檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
 			}
-			pageText := getAnswerPageText(page)
-			if containsAnswerFlowBlockedText(pageText) {
-				log.Warningln("[答題] 檢測到「多端同時作答」限制提示，等待後重試")
-				humanPause(8000, 15000)
-			}
 			log.Warningln("[答題] 系統判斷超時，嘗試刷新頁面")
 			// 刷新頁面重試
 			page.Reload(playwright.PageReloadOptions{
@@ -3599,9 +3676,6 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 			if hasAnswerSliderDeepPrompt(page) {
 				log.Warningln("[答題] 刷新後檢測到滑塊驗證")
 				return ErrAnswerSliderChallenge
-			}
-			if containsAnswerFlowBlockedText(getAnswerPageText(page)) {
-				return fmt.Errorf("檢測到答題流程佔用，刷新後仍未恢復")
 			}
 			// 返回錯誤，讓上層處理
 			return fmt.Errorf("系統判斷超時，刷新後仍未恢復")

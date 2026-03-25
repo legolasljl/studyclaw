@@ -94,6 +94,50 @@ func TestContainsAnswerFlowBlockedText(t *testing.T) {
 	}
 }
 
+func TestContainsAnswerFlowBlockedTextIgnoresGenericFlowMention(t *testing.T) {
+	text := "正在进入答题流程，请稍候"
+	if containsAnswerFlowBlockedText(text) {
+		t.Fatalf("containsAnswerFlowBlockedText() = true, want false")
+	}
+}
+
+func TestContainsAnswerQuestionContextText(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{
+			name: "question page summary",
+			text: "单选题 5. 根据提示选择正确答案 上一题 确定",
+			want: true,
+		},
+		{
+			name: "fill blank page",
+			text: "填空题 请根据提示作答 查看提示 提交",
+			want: true,
+		},
+		{
+			name: "result page",
+			text: "本次答对题目数 5 正确率 100% 再来一组",
+			want: false,
+		},
+		{
+			name: "generic question help text",
+			text: "答题前请先阅读题目提示并进入答题流程",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsAnswerQuestionContextText(tt.text); got != tt.want {
+				t.Fatalf("containsAnswerQuestionContextText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsAnswerCompletionText(t *testing.T) {
 	tests := []struct {
 		name string
