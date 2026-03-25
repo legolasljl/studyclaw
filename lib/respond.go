@@ -2010,22 +2010,89 @@ func radioCheck(page playwright.Page, questionText string, answer []string) erro
 			continue
 		}
 		if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
-			// 找到匹配的答案，點擊
-			if err := humanClick(radio); err == nil {
-				log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent))
+			// 找到匹配的答案，使用 JavaScript 觸發點擊（更可靠）
+			clickResult, _ := radio.Evaluate(`el => {
+				// 先嘗試找到內部的 input 元素
+				const input = el.querySelector('input[type="radio"], input[type="checkbox"]');
+				if (input) {
+					input.click();
+					return { success: true, method: 'input_click' };
+				}
+				// 如果沒有 input，直接點擊元素本身
+				el.click();
+				return { success: true, method: 'element_click' };
+			}`)
+			if res, ok := clickResult.(map[string]interface{}); ok {
+				if success, ok := res["success"].(bool); ok && success {
+					log.Infoln("[答題] 選擇匹配答案：", strings.TrimSpace(textContent), "方法:", res["method"])
+					found = true
+					humanPause(200, 400)
+				}
+			} else if err := humanClick(radio); err == nil {
+				log.Infoln("[答題] 選擇匹配答案（humanClick）：", strings.TrimSpace(textContent))
 				found = true
-				// 不要 break，繼續選擇其他匹配的選項（多選題需要選多項）
 				humanPause(200, 400)
 			}
 		}
 	}
 
+	// 驗證答案是否被選中（重要：確保點擊生效）
+	humanPause(300, 500)
+	selectedCount := 0
+	for _, radio := range radios {
+		isSelected, _ := radio.Evaluate(`el => el.classList.contains('selected') || el.classList.contains('ant-radio-wrapper-checked') || el.querySelector('input:checked') !== null`)
+		if sel, ok := isSelected.(bool); ok && sel {
+			selectedCount++
+		}
+	}
+	if selectedCount > 0 {
+		log.Infoln("[答題] 已確認 ", selectedCount, " 個選項被選中")
+	} else if found {
+		log.Warningln("[答題] 選項點擊成功但未檢測到選中狀態，嘗試重新點擊")
+		// 重新嘗試點擊未選中的匹配項
+		for _, radio := range radios {
+			textContent, _ := radio.TextContent()
+			if _, ok := normalizedAnswer[normalizeAnswerButtonText(textContent)]; ok {
+				isSelected, _ := radio.Evaluate(`el => el.classList.contains('selected') || el.classList.contains('ant-radio-wrapper-checked') || el.querySelector('input:checked') !== null`)
+				if sel, ok := isSelected.(bool); !ok || !sel {
+					// 使用更強力的方式觸發選擇
+					radio.Evaluate(`el => {
+						const input = el.querySelector('input[type="radio"], input[type="checkbox"]');
+						if (input) {
+							input.checked = true;
+							input.dispatchEvent(new Event('change', { bubbles: true }));
+							input.dispatchEvent(new Event('click', { bubbles: true }));
+						}
+						el.classList.add('selected');
+					}`)
+					log.Infoln("[答題] 強制選擇答案：", strings.TrimSpace(textContent))
+					humanPause(200, 400)
+				}
+			}
+		}
+	}
+
+	// 再次驗證
+	humanPause(200, 300)
+	selectedCount = 0
+	for _, radio := range radios {
+		isSelected, _ := radio.Evaluate(`el => el.classList.contains('selected') || el.classList.contains('ant-radio-wrapper-checked') || el.querySelector('input:checked') !== null`)
+		if sel, ok := isSelected.(bool); ok && sel {
+			selectedCount++
+		}
+	}
+	log.Infoln("[答題] 最終確認選中 ", selectedCount, " 個選項")
+
 	// 如果沒找到匹配的答案，隨機選擇第一個選項
 	if !found {
-		if err := humanClick(radios[0]); err == nil {
-			text, _ := radios[0].TextContent()
-			log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
-		}
+		// 使用 JavaScript 點擊
+		radios[0].Evaluate(`el => {
+			const input = el.querySelector('input[type="radio"], input[type="checkbox"]');
+			if (input) input.click();
+			else el.click();
+		}`)
+		text, _ := radios[0].TextContent()
+		log.Infoln("[答題] 未找到匹配答案，隨機選擇：", strings.TrimSpace(text))
 	}
 
 	// 快速確認
@@ -3649,9 +3716,28 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		// 快速確認
 		humanPause(200, 500)
 
-		if err := humanClick(btn); err != nil {
-			lastErr = err
-			continue
+		// 使用 JavaScript 點擊按鈕（更可靠）
+		clickResult, _ := btn.Evaluate(`el => {
+			// 確保按鈕可點擊
+			if (el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')) {
+				return { success: false, reason: 'disabled' };
+			}
+			// 觸發點擊事件
+			el.click();
+			return { success: true };
+		}`)
+		clicked := false
+		if res, ok := clickResult.(map[string]interface{}); ok {
+			if success, ok := res["success"].(bool); ok && success {
+				clicked = true
+			}
+		}
+		// 如果 JavaScript 點擊失敗，嘗試 humanClick
+		if !clicked {
+			if err := humanClick(btn); err != nil {
+				lastErr = err
+				continue
+			}
 		}
 		log.Infoln("[下一題] 已點擊按鈕：", btnText)
 
