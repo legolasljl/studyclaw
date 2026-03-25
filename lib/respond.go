@@ -3625,6 +3625,26 @@ func checkNextBotton(page playwright.Page, previousQuestionText string) error {
 		btnText, _ := btn.TextContent()
 		btnText = strings.TrimSpace(btnText)
 
+		// 檢查按鈕是否可點擊
+		isDisabled, _ := btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+		disabled, _ := isDisabled.(bool)
+		if disabled {
+			log.Warningln("[下一題] 按鈕「", btnText, "」當前被禁用，等待恢復...")
+			// 等待按鈕恢復可點擊（最多等待3秒）
+			for wait := 0; wait < 6; wait++ {
+				humanPause(400, 600)
+				isDisabled, _ = btn.Evaluate(`el => el.disabled || el.classList.contains('disabled') || el.classList.contains('ant-btn-disabled')`)
+				disabled, _ = isDisabled.(bool)
+				if !disabled {
+					log.Infoln("[下一題] 按鈕已恢復可點擊")
+					break
+				}
+			}
+			if disabled {
+				log.Warningln("[下一題] 按鈕持續禁用，可能是答案未選擇完成")
+			}
+		}
+
 		// 快速確認
 		humanPause(200, 500)
 
