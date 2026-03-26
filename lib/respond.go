@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	rand2 "math/rand"
 	"net/http"
 	"regexp"
@@ -291,7 +292,7 @@ func (c *Core) handleAnswerSliderChallenge(page playwright.Page, user *model.Use
 	humanPause(500, 1000)
 
 	// 嘗試多次滑動（阿里雲滑塊有隨機性，多試幾次提高成功率）
-	maxAttempts := 5
+	maxAttempts := 8
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		log.Infoln("[答題] 滑塊驗證嘗試第", attempt, "次...")
 
@@ -847,110 +848,60 @@ func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, f
 	return 0, 0, 0, 0, errors.New("未找到滑塊按鈕（主頁面和所有iframe均未找到）")
 }
 
-func easeOutCubic(t float64) float64 {
-	t = t - 1
-	return t*t*t + 1
-}
-
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
 	distanceX := endX - startX
 
-	// 1) 隨機移到滑塊附近區域，模擬找按鈕
-	moveSteps := rand2.Intn(6) + 5
-	page.Mouse().Move(startX-float64(rand2.Intn(30)+10), startY+float64(rand2.Intn(20)-10), playwright.MouseMoveOptions{Steps: &moveSteps})
+	// --- 1) 移動到手柄位置 ---
+	moveSteps := rand2.Intn(5) + 5
+	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &moveSteps})
 	humanPause(100, 300)
-	// 可能額外晃一下
-	if rand2.Intn(3) == 0 {
-		wobbleSteps := rand2.Intn(3) + 2
-		page.Mouse().Move(startX+float64(rand2.Intn(10)-5), startY-float64(rand2.Intn(8)+2), playwright.MouseMoveOptions{Steps: &wobbleSteps})
-		humanPause(50, 150)
-	}
-	approachSteps := rand2.Intn(4) + 3
-	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &approachSteps})
-	humanPause(150, 400)
 
-	// 2) 按下，真人按下前有微小延遲
+	// --- 2) 按下 ---
 	page.Mouse().Down()
-	humanPause(80, 200)
+	humanPause(60, 180)
 
-	// 3) 生成人類風格的軌跡點
-	//    真人特徵：加速起步 → 中段有速度波動和微頓 → 減速 → 可能滑過 → 修正
-	type point struct {
-		x, y  float64
-		delay int
-	}
-	var trail []point
-
-	// 累積 Y 漂移（真人的手不會完美水平）
+	// --- 3) 平滑拖動到終點 ---
+	// 真人拖「滑到底」的滑塊就是一個簡單的右拖動作：
+	// 起步稍慢 → 中段勻速偏快 → 接近終點稍減速
+	// Y 軸只有微小漂移（手不完美水平），不會有回退或 overshoot
+	totalSteps := 15 + rand2.Intn(10) // 15-24 個軌跡點
 	yDrift := float64(0)
-	yDriftDir := float64(1)
+	yDir := float64(1)
 	if rand2.Intn(2) == 0 {
-		yDriftDir = -1
+		yDir = -1
 	}
 
-	// 階段一：快速加速（前 25-35%）
-	phase1End := 0.25 + float64(rand2.Intn(10))/100.0
-	phase1Steps := 5 + rand2.Intn(4)
-	for i := 1; i <= phase1Steps; i++ {
-		t := float64(i) / float64(phase1Steps) * phase1End
-		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
-		yDrift += yDriftDir * float64(rand2.Intn(3)) * 0.3
-		y := startY + yDrift + float64(rand2.Intn(3)-1)
-		trail = append(trail, point{x, y, 6 + rand2.Intn(18)})
-	}
+	for i := 1; i <= totalSteps; i++ {
+		t := float64(i) / float64(totalSteps)
+		// ease-in-out: 起步慢、中段快、結尾慢（正弦曲線）
+		eased := (1.0 - math.Cos(t*math.Pi)) / 2.0
+		x := startX + distanceX*eased + float64(rand2.Intn(2)-1)
 
-	// 階段二：中段推進（至 70-80%），速度有波動
-	phase2End := 0.70 + float64(rand2.Intn(10))/100.0
-	phase2Steps := 8 + rand2.Intn(6)
-	for i := 1; i <= phase2Steps; i++ {
-		t := phase1End + float64(i)/float64(phase2Steps)*(phase2End-phase1End)
-		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
-		yDrift += yDriftDir * float64(rand2.Intn(3)-1) * 0.2
-		y := startY + yDrift + float64(rand2.Intn(5)-2)
-		// 隨機微頓（真人會有小停頓）
-		delay := 12 + rand2.Intn(30)
-		if rand2.Intn(8) == 0 {
-			delay += 40 + rand2.Intn(80) // 偶爾一個較長停頓
+		// Y 軸：緩慢漂移 ±2px，模擬手部微偏
+		yDrift += yDir * (rand2.Float64() - 0.3) * 0.4
+		if yDrift > 3 {
+			yDrift = 3
+		} else if yDrift < -3 {
+			yDrift = -3
 		}
-		trail = append(trail, point{x, y, delay})
-	}
+		y := startY + yDrift
 
-	// 階段三：減速接近終點（至 100%），可能微微滑過
-	overshoot := float64(rand2.Intn(10) + 2) // 滑過 2-11px
-	phase3Steps := 4 + rand2.Intn(4)
-	for i := 1; i <= phase3Steps; i++ {
-		t := phase2End + float64(i)/float64(phase3Steps)*(1.0-phase2End)
-		targetX := startX + distanceX*t
-		if i == phase3Steps {
-			targetX = endX + overshoot
+		// 每段 Move 加 2-5 個中間插值點，產生足夠的 mousemove 事件
+		steps := rand2.Intn(4) + 2
+		page.Mouse().Move(x, y, playwright.MouseMoveOptions{Steps: &steps})
+
+		// 間隔：中段快、兩端慢
+		baseDelay := 12 + rand2.Intn(20)
+		if t < 0.15 || t > 0.85 {
+			baseDelay += 8 + rand2.Intn(15) // 起步和結尾稍慢
 		}
-		yDrift += float64(rand2.Intn(3)-1) * 0.2
-		y := startY + yDrift + float64(rand2.Intn(3)-1)
-		trail = append(trail, point{targetX, y, 20 + rand2.Intn(45)})
+		time.Sleep(time.Duration(baseDelay) * time.Millisecond)
 	}
 
-	// 階段四：回拉修正到正確位置
-	if overshoot > 0 {
-		humanPause(30, 100)
-		correctionSteps := 2 + rand2.Intn(2)
-		for i := 1; i <= correctionSteps; i++ {
-			x := endX + overshoot*(1-float64(i)/float64(correctionSteps)) + float64(rand2.Intn(2))
-			y := startY + yDrift + float64(rand2.Intn(3)-1)
-			trail = append(trail, point{x, y, 25 + rand2.Intn(50)})
-		}
-	}
-
-	// 4) 執行軌跡（每步加入中間點，增加 mousemove 事件密度）
-	for _, p := range trail {
-		trailSteps := rand2.Intn(3) + 2
-		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &trailSteps})
-		time.Sleep(time.Duration(p.delay) * time.Millisecond)
-	}
-
-	// 5) 最終精確定位 + 短暫停留 + 鬆手
+	// --- 4) 精確定位到終點 + 鬆手 ---
 	finalSteps := rand2.Intn(3) + 2
-	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
-	humanPause(100, 350)
+	page.Mouse().Move(endX, startY+float64(rand2.Intn(2)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
+	humanPause(80, 250)
 	page.Mouse().Up()
 }
 
