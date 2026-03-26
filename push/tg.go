@@ -129,6 +129,7 @@ func (t *Telegram) Init() error {
 	// newPlugin("/update", botUpdate)
 	newPlugin("/restart", botRestart)
 	newPlugin("/get_fail_users", getFailUser)
+	newPlugin("/model", setModel)
 	var err error
 	var uri *url.URL
 	if t.Proxy != "" {
@@ -337,6 +338,36 @@ func getFailUser(bot *Telegram, from int64, args []string) {
 func checkVersion(bot *Telegram, from int64, args []string) {
 	about := utils.GetAbout()
 	bot.SendMsg(from, about)
+}
+
+func setModel(bot *Telegram, from int64, args []string) {
+	modelNames := map[int]string{
+		1: "記事+動画",
+		2: "記事+動画+毎日クイズ",
+		3: "毎日クイズのみ",
+	}
+
+	if len(args) == 0 {
+		current := conf.GetConfig().Model
+		msg := fmt.Sprintf("現在のモード: %d（%s）\n\n使い方: /model <番号>\n  1: 記事+動画\n  2: 記事+動画+毎日クイズ\n  3: 毎日クイズのみ", current, modelNames[current])
+		bot.SendMsg(from, msg)
+		return
+	}
+
+	m, err := strconv.Atoi(args[0])
+	if err != nil || m < 1 || m > 3 {
+		bot.SendMsg(from, "無効なモード番号です。1, 2, 3 のいずれかを指定してください。")
+		return
+	}
+
+	cfg := conf.GetConfig()
+	cfg.Model = m
+	if err := conf.SetConfig(cfg); err != nil {
+		bot.SendMsg(from, fmt.Sprintf("設定の保存に失敗しました: %v", err))
+		return
+	}
+
+	bot.SendMsg(from, fmt.Sprintf("モードを %d（%s）に切り替えました。", m, modelNames[m]))
 }
 
 // botRestart

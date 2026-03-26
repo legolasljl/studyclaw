@@ -100,12 +100,13 @@ func runAudioStudy(core2 *Core, u *model.User) {
 
 func workflowSteps(model int) []studyStep {
 	switch model {
-	case 2:
-		// 模式 2：文章 + 音頻 + 每日答題
-		return []studyStep{studyStepArticle, studyStepAudio, studyStepDailyQuiz}
-	default:
-		// 模式 1（預設）：文章 + 音頻
+	case 1:
 		return []studyStep{studyStepArticle, studyStepAudio}
+	case 3:
+		return []studyStep{studyStepDailyQuiz}
+	default:
+		// 模式 2（預設）：文章 + 音頻 + 每日答題
+		return []studyStep{studyStepArticle, studyStepAudio, studyStepDailyQuiz}
 	}
 }
 

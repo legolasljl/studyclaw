@@ -179,6 +179,8 @@ func SetConfig(config2 Config) error {
 		log.Errorln("保存到文件失败" + err.Error())
 		return err
 	}
+	// 同步更新記憶體中的設定
+	_ = viper.Unmarshal(&config, func(decoderConfig *mapstructure.DecoderConfig) {})
 	return err
 }
 
