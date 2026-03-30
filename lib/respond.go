@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	rand2 "math/rand"
 	"net/http"
 	"regexp"
@@ -851,57 +850,183 @@ func getAnswerSliderPosition(page playwright.Page) (float64, float64, float64, f
 func dragAnswerSlider(page playwright.Page, startX float64, startY float64, endX float64, endY float64) {
 	distanceX := endX - startX
 
-	// --- 1) 移動到手柄位置 ---
-	moveSteps := rand2.Intn(5) + 5
-	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &moveSteps})
-	humanPause(100, 300)
-
-	// --- 2) 按下 ---
-	page.Mouse().Down()
-	humanPause(60, 180)
-
-	// --- 3) 平滑拖動到終點 ---
-	// 真人拖「滑到底」的滑塊就是一個簡單的右拖動作：
-	// 起步稍慢 → 中段勻速偏快 → 接近終點稍減速
-	// Y 軸只有微小漂移（手不完美水平），不會有回退或 overshoot
-	totalSteps := 15 + rand2.Intn(10) // 15-24 個軌跡點
-	yDrift := float64(0)
-	yDir := float64(1)
-	if rand2.Intn(2) == 0 {
-		yDir = -1
+	type point struct {
+		x, y  float64
+		delay int
+		steps int
 	}
 
-	for i := 1; i <= totalSteps; i++ {
-		t := float64(i) / float64(totalSteps)
-		// ease-in-out: 起步慢、中段快、結尾慢（正弦曲線）
-		eased := (1.0 - math.Cos(t*math.Pi)) / 2.0
-		x := startX + distanceX*eased + float64(rand2.Intn(2)-1)
+	// 隨機選擇拖動風格：0=快速自信  1=正常  2=慢速謹慎
+	dragStyle := rand2.Intn(3)
 
-		// Y 軸：緩慢漂移 ±2px，模擬手部微偏
-		yDrift += yDir * (rand2.Float64() - 0.3) * 0.4
-		if yDrift > 3 {
-			yDrift = 3
-		} else if yDrift < -3 {
-			yDrift = -3
-		}
-		y := startY + yDrift
-
-		// 每段 Move 加 2-5 個中間插值點，產生足夠的 mousemove 事件
-		steps := rand2.Intn(4) + 2
-		page.Mouse().Move(x, y, playwright.MouseMoveOptions{Steps: &steps})
-
-		// 間隔：中段快、兩端慢
-		baseDelay := 12 + rand2.Intn(20)
-		if t < 0.15 || t > 0.85 {
-			baseDelay += 8 + rand2.Intn(15) // 起步和結尾稍慢
-		}
-		time.Sleep(time.Duration(baseDelay) * time.Millisecond)
-	}
-
-	// --- 4) 精確定位到終點 + 鬆手 ---
-	finalSteps := rand2.Intn(3) + 2
-	page.Mouse().Move(endX, startY+float64(rand2.Intn(2)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
+	// --- 1) 接近滑塊手柄 ---
+	approachX := startX - float64(rand2.Intn(80)+20)
+	approachY := startY + float64(rand2.Intn(60)-30)
+	moveSteps := rand2.Intn(8) + 6
+	page.Mouse().Move(approachX, approachY, playwright.MouseMoveOptions{Steps: &moveSteps})
 	humanPause(80, 250)
+
+	// 附近晃動 0-2 次
+	for w := 0; w < rand2.Intn(3); w++ {
+		wx := startX + float64(rand2.Intn(20)-10)
+		wy := startY + float64(rand2.Intn(16)-8)
+		ws := rand2.Intn(4) + 2
+		page.Mouse().Move(wx, wy, playwright.MouseMoveOptions{Steps: &ws})
+		humanPause(40, 120)
+	}
+
+	approachSteps := rand2.Intn(5) + 3
+	page.Mouse().Move(startX, startY, playwright.MouseMoveOptions{Steps: &approachSteps})
+	humanPause(120, 350)
+
+	// --- 2) 按下（延遲因風格而異）---
+	page.Mouse().Down()
+	switch dragStyle {
+	case 0:
+		humanPause(50, 120)
+	case 2:
+		humanPause(200, 500)
+	default:
+		humanPause(80, 250)
+	}
+
+	// --- 3) 生成軌跡點 ---
+	var trail []point
+
+	yDrift := float64(0)
+	yDriftDir := float64(1)
+	if rand2.Intn(2) == 0 {
+		yDriftDir = -1
+	}
+	yDriftScale := 0.3
+	if dragStyle == 2 {
+		yDriftScale = 0.5
+	}
+	bezierBulge := (rand2.Float64() - 0.5) * 6.0
+
+	// 階段一：起步加速（前 20-35%）
+	phase1End := 0.20 + rand2.Float64()*0.15
+	phase1Steps := 4 + rand2.Intn(5)
+	if dragStyle == 0 {
+		phase1Steps = 3 + rand2.Intn(3)
+	} else if dragStyle == 2 {
+		phase1Steps = 6 + rand2.Intn(4)
+	}
+	for i := 1; i <= phase1Steps; i++ {
+		t := float64(i) / float64(phase1Steps) * phase1End
+		eased := t * t / (phase1End * phase1End) * phase1End
+		x := startX + distanceX*eased + float64(rand2.Intn(3)-1)
+		yDrift += yDriftDir * float64(rand2.Intn(3)) * yDriftScale
+		bezierY := bezierBulge * 4.0 * t * (1.0 - t)
+		y := startY + yDrift + bezierY + float64(rand2.Intn(3)-1)
+		delay := 5 + rand2.Intn(15)
+		if dragStyle == 2 {
+			delay = 10 + rand2.Intn(25)
+		}
+		trail = append(trail, point{x, y, delay, rand2.Intn(4) + 2})
+	}
+
+	// 階段二：中段推進（至 65-82%）
+	phase2End := 0.65 + rand2.Float64()*0.17
+	phase2Steps := 8 + rand2.Intn(8)
+	if dragStyle == 0 {
+		phase2Steps = 6 + rand2.Intn(4)
+	} else if dragStyle == 2 {
+		phase2Steps = 12 + rand2.Intn(6)
+	}
+	hesitationIdx := -1
+	if rand2.Intn(3) == 0 {
+		hesitationIdx = phase2Steps/3 + rand2.Intn(phase2Steps/3+1)
+	}
+	for i := 1; i <= phase2Steps; i++ {
+		t := phase1End + float64(i)/float64(phase2Steps)*(phase2End-phase1End)
+		x := startX + distanceX*t + float64(rand2.Intn(3)-1)
+
+		// 中途回退：1/3 機率往回拉 3-8px
+		if i == hesitationIdx {
+			retreatDist := float64(rand2.Intn(6) + 3)
+			rx := x - retreatDist
+			ry := startY + yDrift + float64(rand2.Intn(5)-2)
+			trail = append(trail, point{rx, ry, 30 + rand2.Intn(60), rand2.Intn(3) + 2})
+			trail = append(trail, point{rx + float64(rand2.Intn(2)), ry + float64(rand2.Intn(3)-1), 80 + rand2.Intn(150), rand2.Intn(3) + 2})
+		}
+
+		tremor := float64(0)
+		if rand2.Intn(4) == 0 {
+			tremor = float64(rand2.Intn(5)-2) * 0.5
+		}
+
+		yDrift += yDriftDir * float64(rand2.Intn(3)-1) * yDriftScale * 0.7
+		bezierY := bezierBulge * 4.0 * t * (1.0 - t)
+		y := startY + yDrift + bezierY + tremor + float64(rand2.Intn(5)-2)
+
+		delay := 10 + rand2.Intn(25)
+		if dragStyle == 2 {
+			delay = 18 + rand2.Intn(35)
+		}
+		if rand2.Intn(10) == 0 {
+			delay += 50 + rand2.Intn(120)
+		}
+		trail = append(trail, point{x, y, delay, rand2.Intn(4) + 2})
+	}
+
+	// 階段三：減速接近終點（2/3 機率滑過、1/3 精準停住）
+	doOvershoot := rand2.Intn(3) != 0
+	overshoot := float64(0)
+	if doOvershoot {
+		overshoot = float64(rand2.Intn(8) + 2)
+	}
+	phase3Steps := 3 + rand2.Intn(4)
+	if dragStyle == 2 {
+		phase3Steps = 5 + rand2.Intn(3)
+	}
+	for i := 1; i <= phase3Steps; i++ {
+		tNorm := float64(i) / float64(phase3Steps)
+		eased := phase2End + (1.0-phase2End)*(1.0-(1.0-tNorm)*(1.0-tNorm))
+		targetX := startX + distanceX*eased
+		if i == phase3Steps && doOvershoot {
+			targetX = endX + overshoot
+		} else if i == phase3Steps {
+			targetX = endX + float64(rand2.Intn(3)-1)
+		}
+		yDrift += float64(rand2.Intn(3)-1) * 0.2
+		y := startY + yDrift + float64(rand2.Intn(3)-1)
+		trail = append(trail, point{targetX, y, 22 + rand2.Intn(50), rand2.Intn(3) + 3})
+	}
+
+	// 階段四：回拉修正或微調
+	if doOvershoot && overshoot > 0 {
+		humanPause(30, 120)
+		corrSteps := 2 + rand2.Intn(3)
+		for i := 1; i <= corrSteps; i++ {
+			progress := float64(i) / float64(corrSteps)
+			x := endX + overshoot*(1-progress) + float64(rand2.Intn(2))
+			y := startY + yDrift + float64(rand2.Intn(3)-1)
+			trail = append(trail, point{x, y, 20 + rand2.Intn(55), rand2.Intn(3) + 2})
+		}
+	} else if rand2.Intn(2) == 0 {
+		nudge := float64(rand2.Intn(4) - 2)
+		ns := rand2.Intn(3) + 2
+		trail = append(trail, point{endX + nudge, startY + yDrift + float64(rand2.Intn(3)-1), 30 + rand2.Intn(40), ns})
+	}
+
+	// --- 4) 執行軌跡 ---
+	for _, p := range trail {
+		page.Mouse().Move(p.x, p.y, playwright.MouseMoveOptions{Steps: &p.steps})
+		time.Sleep(time.Duration(p.delay) * time.Millisecond)
+	}
+
+	// --- 5) 最終定位 + 鬆手 ---
+	finalSteps := rand2.Intn(4) + 2
+	page.Mouse().Move(endX, startY+float64(rand2.Intn(3)-1), playwright.MouseMoveOptions{Steps: &finalSteps})
+	switch dragStyle {
+	case 0:
+		humanPause(60, 200)
+	case 2:
+		humanPause(200, 500)
+	default:
+		humanPause(100, 350)
+	}
 	page.Mouse().Up()
 }
 
